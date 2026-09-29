@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+*.pt
+*.pth
+*.mp4
+*.avi
+*.vtk
+*.vtp
+*.stl
+*.obj
+*.npz
+out/

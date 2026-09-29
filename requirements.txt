@@ -1,0 +1,13 @@
+numpy>=1.24
+scipy>=1.10
+opencv-python>=4.8
+scikit-image>=0.21
+matplotlib>=3.7
+torch>=2.0
+torchvision>=0.15
+kornia>=0.7          # LoFTR for BronchoTrack-LC
+SimpleITK>=2.2       # reading .nii/.nrrd segmentations (build_graph.py)
+# optional
+# ultralytics        # --detector ultralytics
+# vtk                # --vtk centre lines
+# pytest             # tests
