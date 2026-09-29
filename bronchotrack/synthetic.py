@@ -289,6 +289,7 @@ class OracleEmbedder:
         self.rng = np.random.default_rng(seed)
         self.proto: Dict[str, np.ndarray] = {}
         self.t = 0
+        self.frame_index: Optional[int] = None
 
     def _p(self, lab):
         if lab not in self.proto:
@@ -299,7 +300,10 @@ class OracleEmbedder:
     def __call__(self, frame, boxes):
         from .kalman import iou_matrix
 
-        f = self.frames[min(self.t, len(self.frames) - 1)]
+        # the pipeline only calls the Re-ID on frames with detections, so the caller
+        # sets ``frame_index`` before each frame (a plain counter would drift)
+        t = self.frame_index if self.frame_index is not None else self.t
+        f = self.frames[min(t, len(self.frames) - 1)]
         self.t += 1
         out = []
         gtb = np.array([g[1] for g in f.gt]).reshape(-1, 4)

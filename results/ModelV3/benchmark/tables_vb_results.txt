@@ -1,0 +1,57 @@
+6 trajectories, 3591 frames
+
+Tracking (mean over trajectories)      MOTA     IDF1     HOTA       FP       FN      IDs      FPS
+BronchoTrack w/o KF                  -17.52    25.50    19.88   642.17  1009.67     7.67  1029.49
+BronchoTrack w/o Re-ID               -18.29    25.74    20.80   664.33   997.50     7.83  1422.71
+BronchoTrack w/o Graph               -16.97    25.40    19.96   636.00  1009.33     6.67   863.83
+BronchoTrack                         -16.97    25.40    19.96   636.00  1009.33     6.67   818.14
+BronchoTrack-LC                      -16.97    25.40    19.96   636.00  1009.33     6.67   698.99
+BronchoTrack + ratio fusion          -16.97    25.40    19.96   636.00  1009.33     6.67   775.95
+BronchoTrack-LC + ratio fusion       -16.97    25.40    19.96   636.00  1009.33     6.67   670.26
+
+Localisation                     LocAcc(all frames)  mean per-traj  gen.err  tree dist   AP    p vs BronchoTrack
+BronchoTrack w/o KF                    33.67 %         37.04     +0.51      1.80    3.95   0.493 paired t-test
+BronchoTrack w/o Re-ID                 35.59 %         38.39     +0.79      1.91    4.13   1.000 wilcoxon
+BronchoTrack w/o Graph                  0.00 %          0.00      +nan      0.00    0.00   0.011 paired t-test
+BronchoTrack                           32.83 %         36.43     +0.58      1.96    3.73   nan 
+BronchoTrack-LC                        32.83 %         36.43     +0.58      1.96    3.73   1.000 none (identical)
+BronchoTrack + ratio fusion            33.17 %         36.75     +0.41      1.80    4.32   1.000 wilcoxon
+BronchoTrack-LC + ratio fusion         33.17 %         36.75     +0.41      1.80    4.32   1.000 wilcoxon
+
+Per-trajectory Loc Acc              run01   run02   run03   run04   run05   run06
+BronchoTrack w/o KF                   53.4    44.5    67.0    13.0    18.1    26.3
+BronchoTrack w/o Re-ID                53.4    44.5    65.6    12.7    30.0    24.2
+BronchoTrack w/o Graph                 0.0     0.0     0.0     0.0     0.0     0.0
+BronchoTrack                          52.5    45.4    69.1    12.7    14.7    24.2
+BronchoTrack-LC                       52.5    45.4    69.1    12.7    14.7    24.2
+BronchoTrack + ratio fusion           52.5    45.4    69.1    12.7    14.7    26.1
+BronchoTrack-LC + ratio fusion        52.5    45.4    69.1    12.7    14.7    26.1
+
+Per-branch Loc Acc (mean over trajectories visiting it)
+branch                 BT w/o KF            BT w/o Re-ID            BT w/o Graph                      BT                   BT-LC       BT + ratio fusion    BT-LC + ratio fusion
+0                           80.2                    80.3                     0.0                    80.3                    80.3                    80.3                    80.3
+00                          16.6                    15.5                     0.0                    15.7                    15.7                    16.7                    16.7
+01                          25.4                    20.0                     0.0                    28.3                    28.3                    28.3                    28.3
+000                          0.0                     0.0                     0.0                     0.0                     0.0                     0.0                     0.0
+001                          0.0                     0.0                     0.0                     0.0                     0.0                     0.0                     0.0
+010                         30.3                    38.3                     0.0                    25.9                    25.9                    25.9                    25.9
+011                          0.0                     0.0                     0.0                     0.0                     0.0                     0.0                     0.0
+0000                         0.0                     0.0                     0.0                     0.0                     0.0                     0.0                     0.0
+0001                         0.0                     0.0                     0.0                     0.0                     0.0                     0.0                     0.0
+0010                         0.0                     0.0                     0.0                     0.0                     0.0                     0.0                     0.0
+0100                        37.6                    44.1                     0.0                    29.6                    29.6                    29.6                    29.6
+0101                         0.0                     0.0                     0.0                     0.0                     0.0                     0.0                     0.0
+0111                         0.0                     0.0                     0.0                     0.0                     0.0                     0.0                     0.0
+01000                        0.0                    43.3                     0.0                     0.0                     0.0                     0.0                     0.0
+
+BronchoTrack + ratio fusion: location probability mean 0.88; when correct 0.94 (n=816), when wrong 0.86 (n=2400)
+   p in [0.00,0.60):   150 frames, accuracy 0.7 %
+   p in [0.60,0.80):   367 frames, accuracy 9.3 %
+   p in [0.80,0.95):  1859 frames, accuracy 22.6 %
+   p in [0.95,1.00):   840 frames, accuracy 42.9 %
+
+BronchoTrack-LC + ratio fusion: location probability mean 0.88; when correct 0.94 (n=816), when wrong 0.86 (n=2400)
+   p in [0.00,0.60):   150 frames, accuracy 0.7 %
+   p in [0.60,0.80):   367 frames, accuracy 9.3 %
+   p in [0.80,0.95):  1859 frames, accuracy 22.6 %
+   p in [0.95,1.00):   840 frames, accuracy 42.9 %

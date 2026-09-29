@@ -54,6 +54,8 @@ def run_variant(g, frames, reid, v, seed):
     gt, pr, gl, pl = {}, {}, [], []
     t0 = time.perf_counter()
     for i, f in enumerate(frames):
+        if hasattr(reid, "frame_index"):
+            reid.frame_index = i
         r = bt.process(f.image)
         gt[i] = [(gid, b) for gid, b, _, _ in f.gt]
         pr[i] = [(t.track_id, t.box) for t in r.tracks if t.activated]

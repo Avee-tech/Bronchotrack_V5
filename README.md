@@ -192,3 +192,30 @@ inside each candidate branch and comparing with the video (`tools/gt_from_render
   16 % exact (mean error 1.57) and synthetic to 76.3 %.
 * The probabilities are not calibrated: frames that are wrong still show p ≈ 0.93–0.97,
   because the association prior dominates. Calibrating them needs per-frame ground truth.
+
+## Paper-protocol test on ModelV3 (virtual bronchoscopy with exact ground truth)
+
+`tools/make_vb_benchmark.py` renders runs through the ModelV3 mesh in the style of 3D Slicer's
+virtual endoscopy (60° FOV, circular field) with known camera poses: forward insertion,
+retraction to a parent branch and re-insertion elsewhere (as in the paper's patient data).
+Ground truth per frame: branch-level location, lumen boxes by the Fig. 3 rule (visible
+openings only, depth-buffer test), identities and branch labels. `tools/eval_benchmark.py`
+scores every variant with the paper's metrics; `tools/report_benchmark.py` prints the tables.
+Six runs, 3591 frames (seeds 0; run03 seed 19). Tables and ground truth:
+`results/ModelV3/benchmark/`.
+
+| Condition | Loc Acc original | Loc Acc + ratio fusion | p (paired) | MOTA / IDF1 / HOTA |
+|---|---|---|---|---|
+| `best.pt` detector, histogram Re-ID | 32.8 % | 33.2 % | 1.00 | −17.0 / 25.4 / 20.0 |
+| GT boxes (3 % jitter, 5 % dropped), histogram Re-ID | 26.1 % | 31.5 % | 0.11 | 92.3 / 63.1 / 65.1 |
+| GT boxes, simulated trained Re-ID | 27.2 % | 27.4 % | 0.50 | 92.4 / 63.6 / 66.0 |
+
+Loop closure changed nothing (no loop reached η = 100 matches). Tracking metrics are identical
+with and without fusion (fusion only relabels). Main failure modes, visible in every condition:
+* at a branch entry the entered lumen fills the view and is not boxed while a sibling is still
+  visible at the side; with one primary lumen Eq. (9) places the scope *in that sibling*, and
+  later lumens inherit the wrong subtree (the ratio cue needs ≥ 2 siblings, so cannot help);
+* `best.pt` finds ~38 % of the rendered openings at IoU 0.3 (trained on other data and a
+  different box convention), so near bifurcations one sibling is often missed.
+The fused location probability ranks frames (accuracy 1 % for p < 0.6 up to 43 % for p ≥ 0.95)
+but is over-confident.
