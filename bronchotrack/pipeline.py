@@ -40,6 +40,8 @@ class TrackOut:
     level: int
     activated: bool
     prob: Optional[float] = None    # fused label probability (geometry extension)
+    assoc: Optional[tuple] = None   # (label, prob) from the association method alone
+    ratio: Optional[tuple] = None   # (label, prob) from the diameter:distance ratio method alone
 
 
 @dataclass
@@ -153,10 +155,14 @@ class BronchoTrack:
         for d, tr in sorted(by_det.items()):
             if d not in levels:
                 continue
-            lab, prob = tr.label, None
+            lab, prob, a_, r_ = tr.label, None, None, None
             if fres is not None and d in fres.labels:
                 lab, prob = fres.labels[d]
-            out.append(TrackOut(tr.track_id, tr.box.copy(), tr.score, lab, levels[d], tr.activated, prob))
+                a_, r_ = fres.assoc.get(d), fres.ratio.get(d)
+            elif self.assoc is not None and tr.label is not None:
+                # original pipeline: the association's own confidence in the label (track age)
+                a_ = (tr.label, 0.55 + 0.40 * (1 - np.exp(-max(tr.age(t), 0) / 10.0)))
+            out.append(TrackOut(tr.track_id, tr.box.copy(), tr.score, lab, levels[d], tr.activated, prob, a_, r_))
         r = FrameResult(t, fres.location if fres is not None else self.location,
                         0.0 if self.assoc is None else self.assoc.roll, out, loop, rt)
         r.assoc_location = assoc_loc
@@ -180,11 +186,24 @@ def draw(frame: np.ndarray, res: FrameResult, show_roll: bool = True) -> np.ndar
         cv2.rectangle(img, (x1, y1), (x2, y2), col, (3 if tr.level == 1 else 2) * th_)
         txt = f"{tr.label if tr.label is not None else '?'}-{tr.track_id}-{tr.score:.2f}"
         if tr.prob is not None:
-            txt += f" p={tr.prob:.2f}"
-        (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, fs, th_)
-        y0 = max(th + 6, y1)
-        cv2.rectangle(img, (x1, y0 - th - 6), (x1 + tw + 4, y0), col, -1)
-        cv2.putText(img, txt, (x1 + 2, y0 - 4), cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 0), th_)
+            txt += f" F={tr.prob:.2f}"
+        lines = [txt]
+        if tr.assoc is not None or tr.ratio is not None:
+            def fmt(tag, v):
+                return f"{tag}: -" if v is None or v[0] is None else f"{tag}: {v[0]} {v[1]:.2f}"
+            parts = [fmt("A", tr.assoc)]
+            if tr.prob is not None:  # the ratio method only exists in the modified pipeline
+                parts.append(fmt("R", tr.ratio))
+            lines.append("  ".join(parts))
+        sizes = [cv2.getTextSize(l_, cv2.FONT_HERSHEY_SIMPLEX, fs, th_)[0] for l_ in lines]
+        th = max(h_ for _, h_ in sizes)
+        tw = max(w_ for w_, _ in sizes)
+        lh = th + 6
+        y0 = max(lh * len(lines), y1)
+        cv2.rectangle(img, (x1, y0 - lh * len(lines)), (x1 + tw + 4, y0), col, -1)
+        for li, l_ in enumerate(lines):
+            cv2.putText(img, l_, (x1 + 2, y0 - lh * (len(lines) - 1 - li) - 4), cv2.FONT_HERSHEY_SIMPLEX, fs,
+                        (0, 0, 0), th_)
     if res.location is not None:
         s = f"loc: {res.location}"
         if res.loc_prob is not None:

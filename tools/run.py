@@ -111,7 +111,8 @@ def main():
     os.makedirs(a.out_dir, exist_ok=True)
     mot = open(os.path.join(a.out_dir, "tracks.txt"), "w")
     lab = csv.writer(open(os.path.join(a.out_dir, "tracks_labels.csv"), "w", newline=""))
-    lab.writerow(["frame", "track_id", "x1", "y1", "x2", "y2", "score", "label", "level", "prob"])
+    lab.writerow(["frame", "track_id", "x1", "y1", "x2", "y2", "score", "label", "level", "prob",
+                  "assoc_label", "assoc_prob", "ratio_label", "ratio_prob"])
     loc = csv.writer(open(os.path.join(a.out_dir, "location.csv"), "w", newline=""))
     loc.writerow(["frame", "location", "roll_deg", "loop_closed", "ms", "loc_prob", "assoc_location",
                   "ratio_err_assoc", "ratio_err_fused"])
@@ -130,7 +131,9 @@ def main():
             mot.write(f"{r.t + 1},{tr.track_id},{x1:.1f},{y1:.1f},{x2 - x1:.1f},{y2 - y1:.1f},{tr.score:.3f},-1,-1,-1\n")
             lab.writerow([r.t + 1, tr.track_id, f"{x1:.1f}", f"{y1:.1f}", f"{x2:.1f}", f"{y2:.1f}",
                           f"{tr.score:.3f}", tr.label or "", tr.level,
-                          "" if tr.prob is None else f"{tr.prob:.3f}"])
+                          "" if tr.prob is None else f"{tr.prob:.3f}",
+                          (tr.assoc or ("", None))[0] or "", "" if tr.assoc is None else f"{tr.assoc[1]:.3f}",
+                          (tr.ratio or ("", None))[0] or "", "" if tr.ratio is None else f"{tr.ratio[1]:.3f}"])
         fmt = lambda v: "" if v is None else f"{v:.3f}"  # noqa: E731
         loc.writerow([r.t + 1, r.location or "", f"{np.degrees(r.roll):.1f}", int(r.loop_closed), f"{ms:.1f}",
                       fmt(r.loc_prob), r.assoc_location or "", fmt(r.ratio_err_assoc), fmt(r.ratio_err_fused)])

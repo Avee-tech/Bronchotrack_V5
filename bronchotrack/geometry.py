@@ -155,6 +155,10 @@ class FusionConfig:
 @dataclass
 class FusionResult:
     labels: Dict[int, Tuple[Optional[str], float]] = field(default_factory=dict)   # det -> (label, prob)
+    # each method on its own: association prior only (w_geo = 0) and ratio likelihood only
+    # (uniform prior over the same hypotheses); det -> (label, prob), R missing if no sibling pair
+    assoc: Dict[int, Tuple[Optional[str], float]] = field(default_factory=dict)
+    ratio: Dict[int, Tuple[Optional[str], float]] = field(default_factory=dict)
     location: Optional[str] = None
     loc_prob: float = 0.0
     ratio_err_assoc: Optional[float] = None   # mean |log(obs/actual)| with association labels
@@ -248,7 +252,7 @@ class GeometricFusion:
             P0 = self._base_parent(S, members, assoc_loc, is_root)
             if P0 is None or P0 not in self.g:
                 continue
-            hyps, scores = [], []
+            hyps, scores, lps, lgs = [], [], [], []
             for P in self._hyp_parents(P0, len(members)):
                 cand = list(self.g.children(P))
                 cand += [None] * max(0, len(members) - len(cand))
@@ -266,6 +270,8 @@ class GeometricFusion:
                             lg += self._pair_ll(o, perm[i], perm[j])
                     hyps.append((P, perm))
                     scores.append(lp + self.cfg.w_geo * lg)
+                    lps.append(lp)
+                    lgs.append(lg)
             if not hyps:
                 continue
             sc = np.asarray(scores)
@@ -283,6 +289,28 @@ class GeometricFusion:
                 pP = float(sum(pp for (P, _), pp in zip(hyps, post) if P == P_best))
                 if pd not in fused or fused[pd][1] < pP:
                     fused[pd] = (P_best, pP)
+            # the two methods separately, over the same hypotheses
+            for store, sc_m, needs_pairs in ((res.assoc, lps, False), (res.ratio, lgs, True)):
+                if needs_pairs and not obs:
+                    continue
+                q_ = np.asarray(sc_m, float)
+                pm = np.exp(q_ - q_.max())
+                pm /= pm.sum()
+                for i, m in enumerate(members):
+                    marg: Dict[Optional[str], float] = {}
+                    for (P, h), pp in zip(hyps, pm):
+                        marg[h[i]] = marg.get(h[i], 0.0) + float(pp)
+                    lab = max(marg, key=marg.get)
+                    if m.det not in store or store[m.det][1] < marg[lab]:
+                        store[m.det] = (lab, marg[lab])
+                if not is_root and members[0].parent is not None:
+                    margP: Dict[str, float] = {}
+                    for (P, _), pp in zip(hyps, pm):
+                        margP[P] = margP.get(P, 0.0) + float(pp)
+                    lab = max(margP, key=margP.get)
+                    pd = members[0].parent
+                    if pd not in store or store[pd][1] < margP[lab]:
+                        store[pd] = (lab, margP[lab])
             for (i, j), o in obs.items():
                 if best[i] is not None and best[j] is not None:
                     ra, rb = self.model.ratio(best[i], best[j])
@@ -292,6 +320,8 @@ class GeometricFusion:
         for n in nodes:
             if n.det not in fused:
                 fused[n.det] = (n.label, self._q(n) if n.label is not None else 0.0)
+            if n.det not in res.assoc:
+                res.assoc[n.det] = (n.label, self._q(n) if n.label is not None else 0.0)
         res.labels = fused
         res.ratio_err_assoc = float(np.mean(errs_a)) if errs_a else None
         res.ratio_err_fused = float(np.mean(errs_f)) if errs_f else None
