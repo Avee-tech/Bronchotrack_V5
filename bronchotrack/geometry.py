@@ -13,11 +13,12 @@ Extension to BronchoTrack (not in the paper).
    lumen's apparent diameter D (an obliquely viewed circle keeps its diameter as
    the major axis). For two lumens i, j seen together, d_ij is the distance
    between their box centres, giving the observed ratio  D_i / d_ij.
-3. **Actual ratio.** From the airway graph: 2 r_a / s_ab, with r_a the branch
-   radius (from the CT segmentation) and s_ab the separation of the two
-   branches' entrances, projected on the parent's tangent plane. For lumens at
-   a similar depth the perspective scale cancels, so observed and actual ratios
-   are directly comparable.
+3. **Actual ratio.** From the airway graph: go 1.1 x the parent's radius from the
+   bifurcation into each child branch; D_a is the lumen diameter measured at that
+   point from the CT segmentation and s_ab the distance between the two points,
+   projected on the parent's tangent plane: R_a = D_a / s_ab. For lumens at a
+   similar depth the perspective scale cancels, so observed and actual ratios are
+   directly comparable.
 4. **Fusion.** For every group of sibling lumens the association's labels act as
    a prior (confidence grows with tracklet age); the ratio match is a
    log-normal likelihood. Hypotheses cover the association's parent branch,
@@ -82,30 +83,47 @@ def corrected_diameter(box: np.ndarray, roll: float) -> float:
 # 2-3. observed vs actual ratios
 # --------------------------------------------------------------------------- #
 class RatioModel:
-    """Actual diameter:distance ratios from the airway graph."""
+    """Actual diameter:distance ratios from the airway graph.
 
-    def __init__(self, graph: AirwayGraph, anchor_k: float = 1.5, default_radius: float = 2.0):
-        self.g, self.k, self.r0 = graph, anchor_k, default_radius
+    For sibling branches a, b with parent P: starting at the bifurcation (the start of
+    each child's centre line) go ``entry_factor`` x r_P along each child to points
+    p_a, p_b. The diameter is the local lumen diameter at that point
+    (``Branch.diameter_at``, measured from the segmentation by ``measure_diameters``;
+    2 x the branch radius if the graph has no diameter profile). The distance is
+    |p_a - p_b| projected on P's tangent plane, i.e. as the camera looking down P sees it.
+        R_a = D_a(p_a) / s_ab,   R_b = D_b(p_b) / s_ab
+    """
+
+    def __init__(self, graph: AirwayGraph, entry_factor: float = 1.1, default_radius: float = 2.0):
+        self.g, self.f, self.r0 = graph, entry_factor, default_radius
         self._cache: Dict[Tuple[str, str], Tuple[float, float]] = {}
 
     def radius(self, lab: str) -> float:
         r = self.g[lab].radius
         return float(r) if r else self.r0
 
+    def entry(self, lab: str) -> Tuple[np.ndarray, float]:
+        """(point, local diameter) at entry_factor x parent radius into branch ``lab``."""
+        br = self.g[lab]
+        par = self.g.parent(lab)
+        s = self.f * (self.radius(par) if par is not None else self.radius(lab))
+        s = min(s, br.length)
+        d = br.diameter_at(s)
+        return br.point_at(s), (d if d is not None and d > 0 else 2 * self.radius(lab))
+
     def ratio(self, a: str, b: str) -> Tuple[float, float]:
-        """(2 r_a / s_ab, 2 r_b / s_ab) for sibling branches a, b."""
+        """(D_a / s_ab, D_b / s_ab) for sibling branches a, b."""
         key = (a, b)
         if key not in self._cache:
-            ra, rb = self.radius(a), self.radius(b)
-            pa = self.g[a].point_at(self.k * ra)
-            pb = self.g[b].point_at(self.k * rb)
+            pa, Da = self.entry(a)
+            pb, Db = self.entry(b)
             par = self.g.parent(a)
             e1, e2, _ = self.g.frame(par) if par is not None else self.g.frame(a)
             v = pa - pb
             sep = float(np.hypot(np.dot(v, e1), np.dot(v, e2)))
-            sep = max(sep, 0.5 * (ra + rb))  # guard against degenerate geometry
-            self._cache[key] = (2 * ra / sep, 2 * rb / sep)
-            self._cache[(b, a)] = (2 * rb / sep, 2 * ra / sep)
+            sep = max(sep, 0.25 * (Da + Db))  # guard against degenerate geometry
+            self._cache[key] = (Da / sep, Db / sep)
+            self._cache[(b, a)] = (Db / sep, Da / sep)
         return self._cache[key]
 
 
@@ -130,7 +148,7 @@ class FusionConfig:
     none_logp: float = -4.0      # log-prior of leaving a lumen unexplained (false detection)
     explore_parent: bool = True  # also test the association parent's parent
     explore_children: bool = True  # ... and its children (one-generation slips)
-    anchor_k: float = 1.5        # branch entrance taken 1.5 radii into the branch
+    entry_factor: float = 1.1    # measure each child at 1.1 x parent radius from the bifurcation
     feedback: bool = True        # write fused labels/location back for the next frame
 
 
@@ -149,7 +167,7 @@ class GeometricFusion:
     def __init__(self, graph: AirwayGraph, cfg: Optional[FusionConfig] = None):
         self.g = graph
         self.cfg = cfg if cfg is not None else FusionConfig()
-        self.model = RatioModel(graph, self.cfg.anchor_k)
+        self.model = RatioModel(graph, self.cfg.entry_factor)
 
     # ------------------------------------------------------------------ utils
     def _q(self, n: LumenNode) -> float:

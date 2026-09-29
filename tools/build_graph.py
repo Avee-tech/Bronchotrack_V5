@@ -79,6 +79,7 @@ def main():
     if a.mask:
         m, sp, org = load_mask(a.mask)
         g = AirwayGraph.from_mask(m, sp, org, min_branch_length=a.min_branch, **kw)
+        g.measure_diameters(m, sp, org)  # local lumen diameter along every centre line
     elif a.vtk:
         g = AirwayGraph.from_vtk(a.vtk, merge_tol=a.merge_tol, min_branch_length=a.min_branch, **kw)
     else:

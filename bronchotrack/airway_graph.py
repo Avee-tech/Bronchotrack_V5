@@ -42,6 +42,9 @@ class Branch:
     radius: Optional[float] = None
     generation: int = 0
     name: Optional[str] = None  # optional anatomical name, e.g. "RMB"
+    diam_s: Optional[np.ndarray] = None  # arc lengths (from the start) where the lumen diameter was measured
+    diam: Optional[np.ndarray] = None    # lumen diameter at those points (see measure_diameters)
+    diam_area: Optional[np.ndarray] = None  # equivalent-circle diameter of the whole cross-section
 
     @property
     def direction(self) -> np.ndarray:
@@ -69,6 +72,12 @@ class Branch:
         t = (s - cum[i]) / seg[i]
         return (1 - t) * pts[i] + t * pts[i + 1]
 
+    def diameter_at(self, s: float) -> Optional[float]:
+        """Local lumen diameter at arc length ``s`` from the branch start (None if unmeasured)."""
+        if self.diam is None or self.diam_s is None or len(self.diam) == 0:
+            return None
+        return float(np.interp(s, self.diam_s, self.diam))
+
     def to_dict(self) -> dict:
         return {
             "label": self.label,
@@ -80,6 +89,9 @@ class Branch:
             "radius": self.radius,
             "generation": self.generation,
             "name": self.name,
+            "diam_s": None if self.diam_s is None else np.round(np.asarray(self.diam_s, float), 3).tolist(),
+            "diam": None if self.diam is None else np.round(np.asarray(self.diam, float), 3).tolist(),
+            "diam_area": None if self.diam_area is None else np.round(np.asarray(self.diam_area, float), 3).tolist(),
         }
 
     @staticmethod
@@ -94,6 +106,9 @@ class Branch:
             radius=d.get("radius"),
             generation=int(d.get("generation", 0)),
             name=d.get("name"),
+            diam_s=None if d.get("diam_s") is None else np.asarray(d["diam_s"], float),
+            diam=None if d.get("diam") is None else np.asarray(d["diam"], float),
+            diam_area=None if d.get("diam_area") is None else np.asarray(d["diam_area"], float),
         )
 
 
@@ -355,7 +370,8 @@ class AirwayGraph:
         for old, b in self.branches.items():
             nb = Branch(label=mapping[old], parent=None if b.parent is None else mapping[b.parent],
                         children=[mapping[c] for c in b.children], start=b.start, end=b.end,
-                        points=b.points, radius=b.radius, name=b.name)
+                        points=b.points, radius=b.radius, name=b.name, diam_s=b.diam_s, diam=b.diam,
+                        diam_area=b.diam_area)
             new[nb.label] = nb
         for nb in new.values():  # keep children ordered like their labels
             nb.children.sort()
@@ -599,6 +615,68 @@ class AirwayGraph:
                 radii.append(float(np.median([edt[tuple(idx[v])] for v in inner])))
         return AirwayGraph._from_node_graph(node_pos, adj, polylines, root_hint, patient_right,
                                             min_branch_length, radii)
+
+    def measure_diameters(self, mask: np.ndarray, spacing: Sequence[float], origin: Sequence[float],
+                          step: float = 0.5, grid: float = 0.25) -> "AirwayGraph":
+        """Measure the lumen diameter along every centre line from the segmentation.
+
+        At points every ``step`` mm the mask is sampled on the plane perpendicular to the
+        local centre-line direction. Two diameters are stored per point:
+
+        * ``diam``       2 x the in-plane distance from the centre-line point to the nearest
+                         lumen wall (the diameter *at that point*; stays local even where
+                         the plane still cuts the neighbouring lumen at a bifurcation);
+        * ``diam_area``  equivalent-circle diameter 2*sqrt(A/pi) of the connected lumen
+                         region containing the point.
+
+        ``mask`` is indexed (x, y, z) in the input (CT) frame; needs ``ct_R``/``ct_origin``.
+        """
+        from scipy.ndimage import distance_transform_edt, label as cc_label, map_coordinates
+
+        R = getattr(self, "ct_R", None)
+        if R is None:
+            raise ValueError("graph has no CT transform (build it with from_mask / from_polylines)")
+        m = mask.astype(np.float32)
+        sp, org = np.asarray(spacing, float), np.asarray(origin, float)
+        for b in self.branches.values():
+            L = b.length
+            ss = np.unique(np.r_[np.arange(0.0, L, step), L])
+            half = max(3.0 * (b.radius or 2.0), 6.0)
+            n = int(round(2 * half / grid)) + 1
+            ax = np.linspace(-half, half, n)
+            U, V = np.meshgrid(ax, ax, indexing="ij")
+            ctr = n // 2
+            d_in, d_ar = [], []
+            for s_ in ss:
+                p = b.point_at(s_)
+                q = b.point_at(min(L, s_ + 1.5)) - b.point_at(max(0.0, s_ - 1.5))
+                d = q / (np.linalg.norm(q) + 1e-9)
+                e1, e2, _ = self.tangent_basis(d)
+                P = p[None, None, :] + U[..., None] * e1 + V[..., None] * e2       # standard frame
+                Pct = P @ R + self.ct_origin                                        # -> CT (mm)
+                idx = ((Pct - org) / sp).reshape(-1, 3).T
+                sec = map_coordinates(m, idx, order=1, mode="constant", cval=0.0).reshape(n, n) > 0.5
+                lab, _ = cc_label(sec)
+                k = lab[ctr, ctr]
+                if k == 0:  # centre-line point just outside the voxel lumen: nearest region
+                    ys, xs = np.nonzero(lab)
+                    if len(ys) == 0:
+                        d_in.append(np.nan)
+                        d_ar.append(np.nan)
+                        continue
+                    j = np.argmin((ys - ctr) ** 2 + (xs - ctr) ** 2)
+                    k = lab[ys[j], xs[j]]
+                    cy, cx = ys[j], xs[j]
+                else:
+                    cy, cx = ctr, ctr
+                reg = lab == k
+                d_ar.append(2.0 * np.sqrt(float(reg.sum()) * grid * grid / np.pi))
+                d_in.append(2.0 * float(distance_transform_edt(reg)[cy, cx]) * grid)
+            d_in, d_ar = np.asarray(d_in), np.asarray(d_ar)
+            good = np.isfinite(d_in)
+            if good.any():
+                b.diam_s, b.diam, b.diam_area = ss[good], d_in[good], d_ar[good]
+        return self
 
     @staticmethod
     def from_vtk(path: str, **kw) -> "AirwayGraph":

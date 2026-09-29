@@ -155,8 +155,12 @@ offline, `--lc-matcher sift` is used as a fallback.
    (A rectangle model is available, but it wrongly shrinks round lumens under roll.)
 2. The longest straightened edge is the apparent diameter D. For two lumens seen together,
    the observed ratio is D_i / d_ij, with d_ij the distance between their box centres.
-3. The actual ratio comes from the airway graph: 2 r_a / s_ab (branch radius from the CT mask;
-   separation of the two branch entrances, 1.5 radii in, on the parent's tangent plane).
+3. The actual ratio comes from the airway graph. From the bifurcation, go 1.1 × the parent's
+   radius along each child's centre line to points p_a, p_b. D_a is the lumen diameter *at that
+   point*: twice the in-plane distance from p_a to the nearest wall, on the cross-section of the
+   CT mask perpendicular to the centre line (`AirwayGraph.measure_diameters`, run by
+   `build_graph.py --mask`; the area-equivalent diameter is stored as `diam_area`).
+   s_ab = |p_a − p_b| projected on the parent's tangent plane; R_a = D_a / s_ab.
 4. For every sibling group, the association's labels form the prior (confidence 0.55 → 0.95
    with tracklet age) and the ratio fit a log-normal likelihood (σ = 0.55, fitted on synthetic
    ground truth). Hypotheses cover the association's parent branch, its parent and its
@@ -179,5 +183,12 @@ inside each candidate branch and comparing with the video (`tools/gt_from_render
 * The cue is weak in a self-similar tree: the ratio is scale-free, so sibling pairs one
   generation up or down fit almost as well. On synthetic ground truth the true labels give the
   best ratio fit in only 33 % of sibling groups.
+* Actual-ratio rule (1.1 × parent radius, diameter at the point) vs the first version
+  (1.5 × own radius, median branch diameter), on sibling pairs labelled by the association:
+  Spearman ρ between observed and actual ratio 0.26 / 0.50 (videos 1 / 2) vs −0.03 / −0.15;
+  median |log(obs/actual)| 0.28 / 0.18 vs 0.22 / 0.24; observed ratios are 12–27 % below the
+  actual ones (the diameter at 1.1 × parent radius is still slightly inflated by the junction).
+  Localisation results in the table are unchanged at w = 1; at w = 3 video 1 drops to
+  16 % exact (mean error 1.57) and synthetic to 76.3 %.
 * The probabilities are not calibrated: frames that are wrong still show p ≈ 0.93–0.97,
   because the association prior dominates. Calibrating them needs per-frame ground truth.
