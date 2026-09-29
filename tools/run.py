@@ -72,6 +72,10 @@ def main():
     ap.add_argument("--show", action="store_true")
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--map", action="store_true", help="add an airway-map inset to the overlay video")
+    ap.add_argument("--geometry", action="store_true",
+                    help="extension: fuse the roll-corrected diameter:distance cue with the association")
+    ap.add_argument("--geo-sigma", type=float, default=0.55, help="spread of log(observed/actual) ratio")
+    ap.add_argument("--geo-weight", type=float, default=1.0, help="weight of the ratio cue vs the association")
     ap.add_argument("--fps", type=float, default=None, help="overlay fps (default: source fps or 15)")
     a = ap.parse_args()
 
@@ -87,6 +91,8 @@ def main():
 
     cfg = BronchoTrackConfig(use_graph=not a.no_graph and graph is not None, use_lc=a.lc)
     cfg.tracker.use_kf = not a.no_kf
+    cfg.use_geometry = a.geometry
+    cfg.fusion.sigma, cfg.fusion.w_geo = a.geo_sigma, a.geo_weight
     cfg.tracker.high_thresh = cfg.tracker.new_track_thresh = a.high_thresh
     cfg.tracker.det_thresh = a.conf
     cfg.association.init_roll = np.radians(a.init_roll)
@@ -105,9 +111,10 @@ def main():
     os.makedirs(a.out_dir, exist_ok=True)
     mot = open(os.path.join(a.out_dir, "tracks.txt"), "w")
     lab = csv.writer(open(os.path.join(a.out_dir, "tracks_labels.csv"), "w", newline=""))
-    lab.writerow(["frame", "track_id", "x1", "y1", "x2", "y2", "score", "label", "level"])
+    lab.writerow(["frame", "track_id", "x1", "y1", "x2", "y2", "score", "label", "level", "prob"])
     loc = csv.writer(open(os.path.join(a.out_dir, "location.csv"), "w", newline=""))
-    loc.writerow(["frame", "location", "roll_deg", "loop_closed", "ms"])
+    loc.writerow(["frame", "location", "roll_deg", "loop_closed", "ms", "loc_prob", "assoc_location",
+                  "ratio_err_assoc", "ratio_err_fused"])
     writer = None
     t0 = time.perf_counter()
     n = 0
@@ -122,8 +129,11 @@ def main():
             x1, y1, x2, y2 = tr.box
             mot.write(f"{r.t + 1},{tr.track_id},{x1:.1f},{y1:.1f},{x2 - x1:.1f},{y2 - y1:.1f},{tr.score:.3f},-1,-1,-1\n")
             lab.writerow([r.t + 1, tr.track_id, f"{x1:.1f}", f"{y1:.1f}", f"{x2:.1f}", f"{y2:.1f}",
-                          f"{tr.score:.3f}", tr.label or "", tr.level])
-        loc.writerow([r.t + 1, r.location or "", f"{np.degrees(r.roll):.1f}", int(r.loop_closed), f"{ms:.1f}"])
+                          f"{tr.score:.3f}", tr.label or "", tr.level,
+                          "" if tr.prob is None else f"{tr.prob:.3f}"])
+        fmt = lambda v: "" if v is None else f"{v:.3f}"  # noqa: E731
+        loc.writerow([r.t + 1, r.location or "", f"{np.degrees(r.roll):.1f}", int(r.loop_closed), f"{ms:.1f}",
+                      fmt(r.loc_prob), r.assoc_location or "", fmt(r.ratio_err_assoc), fmt(r.ratio_err_fused)])
         vis = draw_with_map(fr, r, amap) if amap is not None else draw(fr, r)
         if not a.no_video:
             if writer is None:

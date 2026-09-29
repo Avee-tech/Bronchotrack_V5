@@ -12,6 +12,7 @@ import numpy as np
 from .airway_graph import AirwayGraph
 from .association import AirwayAssociator, AssociationConfig
 from .detector import Detections
+from .geometry import FusionConfig, GeometricFusion, apply_fusion
 from .subgraph import build_subgraph
 from .tracker import LumenTracker, TrackerConfig
 
@@ -26,6 +27,8 @@ class BronchoTrackConfig:
     lc_lambda: int = 1              # most-recent gallery records compared
     contain_thr: float = 0.8        # box inclusion ratio for the lumen hierarchy
     prune_iou: float = 0.6          # single-child IoU above which parent/child are duplicates
+    use_geometry: bool = False      # extension: fuse the roll-corrected diameter:distance cue
+    fusion: FusionConfig = field(default_factory=FusionConfig)
 
 
 @dataclass
@@ -36,6 +39,7 @@ class TrackOut:
     label: Optional[str]
     level: int
     activated: bool
+    prob: Optional[float] = None    # fused label probability (geometry extension)
 
 
 @dataclass
@@ -46,6 +50,10 @@ class FrameResult:
     tracks: List[TrackOut]
     loop_closed: bool = False
     runtime_ms: Dict[str, float] = field(default_factory=dict)
+    loc_prob: Optional[float] = None          # geometry extension
+    assoc_location: Optional[str] = None      # association-only location (before fusion)
+    ratio_err_assoc: Optional[float] = None
+    ratio_err_fused: Optional[float] = None
 
 
 class BronchoTrack:
@@ -64,6 +72,7 @@ class BronchoTrack:
         if cfg.use_lc and self.assoc is not None:
             from .loop_closure import LoopClosure
             self.lc = LoopClosure(matcher, eta=cfg.lc_eta, lam=cfg.lc_lambda)
+        self.fusion = GeometricFusion(graph, cfg.fusion) if (cfg.use_geometry and self.assoc is not None) else None
         self.t = -1
 
     @property
@@ -122,39 +131,71 @@ class BronchoTrack:
                     self.assoc.gallery[res.record_label].updated = t
                 rt["lc"] = 1e3 * (time.perf_counter() - t0)
 
+        # ---- extension: roll-corrected diameter:distance cue fused with the association
+        fres = None
+        assoc_loc = self.location
+        if self.fusion is not None and self.assoc.initialized:
+            t0 = time.perf_counter()
+            fres = self.fusion.fuse(S, self.assoc.loc, self.assoc.roll)
+            if self.cfg.fusion.feedback:
+                apply_fusion(S, fres)
+                if fres.location is not None:
+                    self.assoc.loc = fres.location
+            rt["geometry"] = 1e3 * (time.perf_counter() - t0)
+
+        if self.assoc is not None:
             # write refined labels back to the tracklets
             for n in S:
                 by_det[n.det].label = n.label
 
         levels = {n.det: n.level for n in S}
-        out = [TrackOut(tr.track_id, tr.box.copy(), tr.score, tr.label, levels.get(d, 1), tr.activated)
-               for d, tr in sorted(by_det.items()) if d in levels]
-        return FrameResult(t, self.location, 0.0 if self.assoc is None else self.assoc.roll, out, loop, rt)
+        out = []
+        for d, tr in sorted(by_det.items()):
+            if d not in levels:
+                continue
+            lab, prob = tr.label, None
+            if fres is not None and d in fres.labels:
+                lab, prob = fres.labels[d]
+            out.append(TrackOut(tr.track_id, tr.box.copy(), tr.score, lab, levels[d], tr.activated, prob))
+        r = FrameResult(t, fres.location if fres is not None else self.location,
+                        0.0 if self.assoc is None else self.assoc.roll, out, loop, rt)
+        r.assoc_location = assoc_loc
+        if fres is not None:
+            r.loc_prob, r.ratio_err_assoc, r.ratio_err_fused = fres.loc_prob, fres.ratio_err_assoc, fres.ratio_err_fused
+        return r
 
 
 # --------------------------------------------------------------------------- #
 def draw(frame: np.ndarray, res: FrameResult, show_roll: bool = True) -> np.ndarray:
-    """Overlay in the style of Fig. 4: [Branch]-[Tracklet]-[confidence]."""
+    """Overlay in the style of Fig. 4: [Branch]-[Tracklet]-[confidence] (+ p=fused probability)."""
     img = frame.copy()
+    k = max(0.4, img.shape[1] / 1000.0)            # text scale follows the frame size
+    fs, th_ = 0.45 * k, max(1, int(round(k)))
     for tr in res.tracks:
         if not tr.activated:
             continue
         rng = np.random.default_rng(tr.track_id * 7919)
         col = tuple(int(c) for c in rng.integers(60, 255, 3))
         x1, y1, x2, y2 = tr.box.astype(int)
-        cv2.rectangle(img, (x1, y1), (x2, y2), col, 2 if tr.level == 1 else 1)
+        cv2.rectangle(img, (x1, y1), (x2, y2), col, (3 if tr.level == 1 else 2) * th_)
         txt = f"{tr.label if tr.label is not None else '?'}-{tr.track_id}-{tr.score:.2f}"
-        (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
-        cv2.rectangle(img, (x1, max(0, y1 - th - 4)), (x1 + tw + 2, max(th + 4, y1)), col, -1)
-        cv2.putText(img, txt, (x1 + 1, max(th + 1, y1 - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+        if tr.prob is not None:
+            txt += f" p={tr.prob:.2f}"
+        (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, fs, th_)
+        y0 = max(th + 6, y1)
+        cv2.rectangle(img, (x1, y0 - th - 6), (x1 + tw + 4, y0), col, -1)
+        cv2.putText(img, txt, (x1 + 2, y0 - 4), cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 0), th_)
     if res.location is not None:
         s = f"loc: {res.location}"
+        if res.loc_prob is not None:
+            s += f"  p={res.loc_prob:.2f}"
         if show_roll:
-            s += f"  roll: {np.degrees(res.roll):+.0f}deg"
+            s += f"  roll {np.degrees(res.roll):+.0f}deg"
         if res.loop_closed:
             s += "  [loop]"
-        cv2.putText(img, s, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-        cv2.putText(img, s, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        (tw, th), _ = cv2.getTextSize(s, cv2.FONT_HERSHEY_SIMPLEX, 0.8 * k, 2 * th_)
+        cv2.rectangle(img, (0, 0), (tw + 16, th + 18), (20, 20, 20), -1)
+        cv2.putText(img, s, (8, th + 9), cv2.FONT_HERSHEY_SIMPLEX, 0.8 * k, (255, 255, 255), 2 * th_)
     return img
 
 

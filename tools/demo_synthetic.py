@@ -28,6 +28,7 @@ VARIANTS = {
     "BronchoTrack w/o Graph": dict(use_graph=False),
     "BronchoTrack": dict(),
     "BronchoTrack-LC": dict(use_lc=True),
+    "BronchoTrack + ratio fusion": dict(use_geometry=True),
 }
 
 
@@ -39,7 +40,8 @@ def pick_targets(g, rng, gen=4):
 
 
 def run_variant(g, frames, reid, v, seed):
-    cfg = BronchoTrackConfig(use_graph=v.get("use_graph", True), use_lc=v.get("use_lc", False))
+    cfg = BronchoTrackConfig(use_graph=v.get("use_graph", True), use_lc=v.get("use_lc", False),
+                             use_geometry=v.get("use_geometry", False))
     cfg.tracker.use_kf = v.get("use_kf", True)
     cfg.tracker.use_reid = v.get("use_reid", True)
     table = {i: [(*b, float(np.clip(0.9 - 0.02 * lvl, 0, 1))) for _, b, _, lvl in f.gt] for i, f in enumerate(frames)}

@@ -144,3 +144,40 @@ closure never reaches η = 100 there (the LC mechanics are covered by a unit tes
 The patient/porcine data, the trained YOLOv7 and Re-ID weights, and the exact airway
 segmentation network [26] are not public. LoFTR weights are downloaded by kornia on first use;
 offline, `--lc-matcher sift` is used as a fallback.
+
+## Extension: roll-corrected diameter:distance ratio, fused with the association
+
+`bronchotrack/geometry.py`, enabled with `run.py --geometry` (`BronchoTrackConfig.use_geometry`).
+
+1. Each tracked box is straightened with the current roll estimate. The lumen opening is
+   modelled as an ellipse (w', h'); its axis-aligned box after a roll θ satisfies
+   W² = w'²cos²θ + h'²sin²θ, H² = w'²sin²θ + h'²cos²θ, which is inverted for (w', h').
+   (A rectangle model is available, but it wrongly shrinks round lumens under roll.)
+2. The longest straightened edge is the apparent diameter D. For two lumens seen together,
+   the observed ratio is D_i / d_ij, with d_ij the distance between their box centres.
+3. The actual ratio comes from the airway graph: 2 r_a / s_ab (branch radius from the CT mask;
+   separation of the two branch entrances, 1.5 radii in, on the parent's tangent plane).
+4. For every sibling group, the association's labels form the prior (confidence 0.55 → 0.95
+   with tracklet age) and the ratio fit a log-normal likelihood (σ = 0.55, fitted on synthetic
+   ground truth). Hypotheses cover the association's parent branch, its parent and its
+   children. The posterior gives fused labels, a probability per lumen (`p=` on each box) and
+   a location probability (probability-weighted Eq. (9) vote averaged over voting lumens).
+   `location.csv` also keeps the association-only location and the ratio errors.
+
+### Original vs fused (ModelV3 videos, synthetic benchmark)
+
+Both variants are identical outside the frames listed below. No full ground truth exists for
+the videos; the frames where the variants disagree were checked by rendering the ModelV3 mesh
+inside each candidate branch and comparing with the video (`tools/gt_from_renders.py`).
+
+| | Video 1, frames 724–853 (truth 010→0100) | Video 2, frames 983–1030 (truth 000) | Synthetic (6 seqs, Loc Acc) |
+|---|---|---|---|
+| Original | 12 % exact, mean error 0.88 generations | 0 % exact, 001 (2 steps off) | 78.3 % |
+| Fused (default, w = 1) | identical to original | 0 % exact, 00 (1 step off) | 78.1 % |
+| Fused, ratio weight 3 | 39 % exact, mean error 0.96 | 0 % exact, 00 (1 step off) | 77.0 % |
+
+* The cue is weak in a self-similar tree: the ratio is scale-free, so sibling pairs one
+  generation up or down fit almost as well. On synthetic ground truth the true labels give the
+  best ratio fit in only 33 % of sibling groups.
+* The probabilities are not calibrated: frames that are wrong still show p ≈ 0.93–0.97,
+  because the association prior dominates. Calibrating them needs per-frame ground truth.

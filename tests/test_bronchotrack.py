@@ -262,3 +262,47 @@ def test_initialisation_waits_for_stable_pair():
         S = build_subgraph(_carina_view(g, 0.0), np.ones(2), track_ids=[1, 2], track_ages=[t, t])
         A.step(S, t, (256, 256))
         assert A.initialized == (t == 4)
+
+
+# ------------------------------------------------------------------ geometry extension
+@pytest.mark.parametrize("theta_deg", [0, 15, 30, -20, 70])
+def test_derotate_box_recovers_rectangle_and_ellipse(theta_deg):
+    from bronchotrack.geometry import derotate_box
+    w, h, th = 40.0, 20.0, np.radians(theta_deg)
+    c, s = abs(np.cos(th)), abs(np.sin(th))
+    rw, rh = derotate_box(w * c + h * s, w * s + h * c, th, model="rect")
+    assert abs(rw - w) < 1e-6 and abs(rh - h) < 1e-6
+    # ellipse with semi-axes 20, 10: axis-aligned box of the rotated ellipse
+    W, H = 2 * np.sqrt(20 ** 2 * c * c + 10 ** 2 * s * s), 2 * np.sqrt(20 ** 2 * s * s + 10 ** 2 * c * c)
+    ew, eh = derotate_box(W, H, th)
+    assert abs(ew - 40) < 1e-6 and abs(eh - 20) < 1e-6
+
+
+def test_derotate_near_45_and_circles():
+    from bronchotrack.geometry import derotate_box
+    rw, rh = derotate_box(30.0, 30.0, np.radians(45), model="rect")
+    assert rw == rh and 20 < rw < 22  # square of side 30/sqrt(2)
+    for deg in (0, 20, 45, 70):       # a round lumen's box does not change with roll
+        assert np.allclose(derotate_box(30.0, 30.0, np.radians(deg)), (30.0, 30.0))
+
+
+def test_ratio_model_and_fusion_prefers_geometric_fit():
+    from bronchotrack.geometry import GeometricFusion, RatioModel
+    g = AirwayGraph.from_json(os.path.join(os.path.dirname(__file__), "..", "results", "ModelV3", "airway_v3.json"))
+    M = RatioModel(g)
+    ra, rb = M.ratio("010", "011")  # bronchus intermedius vs right upper lobe: 4.5 vs 2.5 mm
+    assert np.allclose(M.ratio("011", "010"), (rb, ra)) and ra > rb
+    # two sibling lumens (not yet labelled) whose apparent sizes match 010 / 011
+    d = 200.0
+    c1, c2 = np.array([150.0, 150]), np.array([150.0 + d, 150])
+    D1, D2 = ra * d, rb * d
+    boxes = np.array([np.r_[c1 - D1 / 2, c1 + D1 / 2], np.r_[c2 - D2 / 2, c2 + D2 / 2]])
+    S = build_subgraph(boxes, np.ones(2), track_ids=[1, 2], track_ages=[0, 0])
+    res = GeometricFusion(g).fuse(S, "01", 0.0)
+    assert res.labels[0][0] == "010" and res.labels[1][0] == "011"
+    # the ratio alone is scale-free, so sibling pairs of other generations stay plausible
+    assert res.labels[0][1] > 0.1 and res.location == "01"
+    # the same boxes rolled by 30 deg: the straightened longest edge keeps the decision
+    S2 = build_subgraph(boxes, np.ones(2), track_ids=[1, 2], track_ages=[0, 0])
+    res2 = GeometricFusion(g).fuse(S2, "01", np.radians(30))
+    assert res2.labels[0][0] == "010"
