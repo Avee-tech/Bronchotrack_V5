@@ -1,0 +1,293 @@
+{
+ "@schema": "https://raw.githubusercontent.com/slicer/slicer/master/Modules/Loadable/Markups/Resources/Schema/markups-schema-v1.0.3.json#",
+ "markups": [
+  {
+   "type": "Fiducial",
+   "coordinateSystem": "LPS",
+   "coordinateUnits": "mm",
+   "locked": true,
+   "labelFormat": "%N-%d",
+   "controlPoints": [
+    {
+     "id": "1",
+     "label": "trachea",
+     "position": [
+      2.0018081665038885,
+      13.937767982482919,
+      -78.68550585382266
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "2",
+     "label": "L",
+     "position": [
+      17.482434298839284,
+      26.937767982482985,
+      -143.41235831007032
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "3",
+     "label": "R",
+     "position": [
+      -11.750819767794079,
+      24.437767982482985,
+      -130.68436011203264
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "4",
+     "label": "L1",
+     "position": [
+      50.96606851109255,
+      29.437767982483066,
+      -168.3959925223245
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "5",
+     "label": "L2",
+     "position": [
+      49.749336381140594,
+      18.937767982483273,
+      -155.18420396309588
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "6",
+     "label": "R1",
+     "position": [
+      -27.498191833495408,
+      24.937767982483127,
+      -152.81388104753663
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "7",
+     "label": "R2",
+     "position": [
+      -31.450113475707134,
+      20.985846340271262,
+      -136.93173217773438
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "8",
+     "label": "L11",
+     "position": [
+      59.001808166501974,
+      32.437767982483074,
+      -181.93173217773418
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "9",
+     "label": "L12",
+     "position": [
+      62.782138252391796,
+      28.437767982483187,
+      -182.7120622636241
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "10",
+     "label": "L21",
+     "position": [
+      58.92858486179871,
+      14.437767982483349,
+      -149.00495548243748
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "11",
+     "label": "L22",
+     "position": [
+      59.00180816650205,
+      11.429549940730542,
+      -156.43995021948703
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "12",
+     "label": "R11",
+     "position": [
+      -37.99819183349515,
+      26.9377679824832,
+      -170.7916126946556
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "13",
+     "label": "R12",
+     "position": [
+      -38.49819183349513,
+      17.437767982483464,
+      -170.43173217773432
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "14",
+     "label": "R21",
+     "position": [
+      -41.451446835794286,
+      13.984512980183975,
+      -133.3849871800337
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "15",
+     "label": "R22",
+     "position": [
+      -40.498191833494964,
+      16.43776798248317,
+      -122.71300333044468
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "16",
+     "label": "L111",
+     "position": [
+      59.89003673415569,
+      42.93776798248287,
+      -196.04350361008045
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "17",
+     "label": "L112",
+     "position": [
+      65.13569164298497,
+      34.93776798248307,
+      -192.06561565421737
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "18",
+     "label": "L211",
+     "position": [
+      62.501808166501995,
+      19.937767982483088,
+      -133.11474487962641
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "19",
+     "label": "L212",
+     "position": [
+      61.13943573080622,
+      11.30014041817918,
+      -141.7941046134299
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "20",
+     "label": "R111",
+     "position": [
+      -50.780262181100504,
+      40.21983833008869,
+      -200.7138025253401
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    },
+    {
+     "id": "21",
+     "label": "R112",
+     "position": [
+      -39.49819183349513,
+      25.937767982483326,
+      -184.7058262570287
+     ],
+     "selected": true,
+     "locked": true,
+     "visibility": true,
+     "positionStatus": "defined"
+    }
+   ],
+   "display": {
+    "visibility": true,
+    "glyphScale": 1.5,
+    "textScale": 3.0,
+    "pointLabelsVisibility": true
+   }
+  }
+ ]
+}

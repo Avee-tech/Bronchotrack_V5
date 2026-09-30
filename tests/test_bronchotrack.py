@@ -347,3 +347,64 @@ def test_reach_probs_allow_one_generation_near_bifurcation():
     r = m.reach_probs()
     assert r.get("0", 0) > 0.99 and r.get("00", 0) > 0.99 and r.get("01", 0) > 0.99
     assert r.get("000", 0) == 0                  # two generations away: not within 1 s
+
+
+# ------------------------------------------------------------------ 3D Slicer converter
+def _slicer_tree():
+    g = make_tree(2, seed=5)
+    mask, lo = _voxelize(g, spacing=0.5)
+    return g, mask, lo
+
+
+def test_slicer_segmentation_ras_flipped_axes(tmp_path):
+    import nrrd
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    from slicer_to_airway import build
+    g, mask, lo = _slicer_tree()
+    # same voxels, written the way Slicer stores a RAS segmentation with flipped x/y axes
+    lab = mask.astype(np.uint8)
+    lab[:3, :3, :3] = 2                                     # another segment to ignore
+    h = {"type": "unsigned char", "dimension": 3, "space": "right-anterior-superior",
+         "space directions": [[-0.5, 0, 0], [0, -0.5, 0], [0, 0, 0.5]], "space origin": [-lo[0], -lo[1], lo[2]],
+         "kinds": ["domain"] * 3, "Segment0_ID": "S1", "Segment0_Name": "Lung", "Segment0_LabelValue": "2",
+         "Segment1_ID": "S2", "Segment1_Name": "Airway", "Segment1_LabelValue": "1"}
+    f = str(tmp_path / "Segmentation.seg.nrrd")
+    nrrd.write(f, lab, h)
+    a = build(f, log=lambda *x: None)
+    assert len(a) == len(g) and a.max_generation() == 2
+    assert set(a.children("trachea")) == {"R", "L"}
+    # right main bronchus is the one toward the patient's right (-x in LPS, +x in RAS)
+    assert a.to_ct(a["R"].end)[0] > a.to_ct(a["L"].end)[0]
+    assert all(a[l].diam is not None for l in a.labels())
+
+
+def test_slicer_surface_model_and_outputs(tmp_path):
+    import vtk
+    from skimage.measure import marching_cubes
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    from slicer_to_airway import build, to_nodes, write_slicer_checks
+    g, mask, lo = _slicer_tree()
+    v, faces, _, _ = marching_cubes(np.pad(mask, 1).astype(np.float32), 0.5)
+    v = (v - 1) * 0.5 + lo
+    v[:, :2] *= -1                                          # write it as an RAS model
+    pts, polys = vtk.vtkPoints(), vtk.vtkCellArray()
+    for p in v:
+        pts.InsertNextPoint(*p)
+    for f_ in faces:
+        polys.InsertNextCell(3, [int(i) for i in f_])
+    pd = vtk.vtkPolyData()
+    pd.SetPoints(pts)
+    pd.SetPolys(polys)
+    w = vtk.vtkPolyDataWriter()
+    path = str(tmp_path / "Airway.vtk")
+    w.SetFileName(path)
+    w.SetInputData(pd)
+    w.SetHeader("3D Slicer output. SPACE=RAS")
+    w.Write()
+    a = build(path, log=lambda *x: None)
+    assert len(a) == len(g) and set(a.children("trachea")) == {"R", "L"}
+    assert a.to_ct(a["R"].end)[0] > a.to_ct(a["L"].end)[0]  # patient right = +x in RAS
+    nodes = to_nodes(a)
+    assert nodes["coordinate_system"] == "RAS" and len(nodes["nodes"]) == len(a)
+    write_slicer_checks(a, str(tmp_path / "c.vtk"), str(tmp_path / "l.mrk.json"))
+    assert "SPACE=RAS" in open(tmp_path / "c.vtk", encoding="latin-1").read(200)

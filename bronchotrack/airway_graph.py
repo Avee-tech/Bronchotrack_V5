@@ -380,6 +380,32 @@ class AirwayGraph:
         self._recompute_generations()
         return self
 
+    def relabel_anatomical(self, root: str = "trachea") -> "AirwayGraph":
+        """Thesis-style labels: trachea, R / L for the main bronchi (by name RMB/LMB),
+        then parent label + child number (R1, R2, R11 ...), children numbered in the
+        tangent-plane angle order used by ``relabel_canonical``."""
+        mapping = {self.root: root}
+        order = sorted(self.labels(), key=lambda l: (self.generation(l), l))
+        for lab in order:
+            kids = sorted(self.children(lab))
+            for m, c in enumerate(kids):
+                nm = (self.branches[c].name or "").upper()
+                if lab == self.root and nm in ("RMB", "LMB"):
+                    mapping[c] = nm[0]
+                else:
+                    mapping[c] = (mapping[lab] if lab != self.root else "B") + str(m + 1)
+        new = {}
+        for old_, b in self.branches.items():
+            nb = Branch(label=mapping[old_], parent=None if b.parent is None else mapping[b.parent],
+                        children=[mapping[c] for c in b.children], start=b.start, end=b.end,
+                        points=b.points, radius=b.radius, name=b.name, diam_s=b.diam_s, diam=b.diam,
+                        diam_area=b.diam_area)
+            new[nb.label] = nb
+        self.branches, self.root = new, root
+        self.invalidate()
+        self._recompute_generations()
+        return self
+
     # ------------------------------------------------------------------- I/O
     def to_json(self, path: str):
         with open(path, "w") as f:
@@ -545,11 +571,12 @@ class AirwayGraph:
     def from_mask(mask: np.ndarray, spacing: Sequence[float] = (1.0, 1.0, 1.0),
                   origin: Sequence[float] = (0.0, 0.0, 0.0), root_hint: Optional[np.ndarray] = None,
                   patient_right: Optional[np.ndarray] = None, min_branch_length: float = 3.0,
-                  smooth_sigma: float = 1.0) -> "AirwayGraph":
+                  smooth_sigma: float = 1.0, direction: Optional[np.ndarray] = None) -> "AirwayGraph":
         """Build M from a binary airway segmentation (ref. [26]) by 3-D Lee
         skeletonisation (ref. [27]) and centre-line splitting at bifurcations.
 
-        ``mask`` is indexed (i, j, k); ``spacing``/``origin`` map indices to mm.
+        ``mask`` is indexed (i, j, k); world = origin + direction @ (index * spacing), with
+        ``direction`` the 3x3 matrix whose columns are the unit index axes (identity if None).
         """
         from scipy.ndimage import distance_transform_edt, gaussian_filter
         from skimage.morphology import skeletonize
@@ -563,7 +590,8 @@ class AirwayGraph:
         idx = np.argwhere(skel)
         if len(idx) == 0:
             raise ValueError("empty skeleton")
-        pos = idx * np.asarray(spacing, float) + np.asarray(origin, float)
+        Dm = np.eye(3) if direction is None else np.asarray(direction, float)
+        pos = (idx * np.asarray(spacing, float)) @ Dm.T + np.asarray(origin, float)
         index = {tuple(v): n for n, v in enumerate(idx)}
         offs = [(a, b, c) for a in (-1, 0, 1) for b in (-1, 0, 1) for c in (-1, 0, 1) if (a, b, c) != (0, 0, 0)]
         nbrs = [[index[t] for t in ((v[0] + a, v[1] + b, v[2] + c) for a, b, c in offs) if t in index]
@@ -617,7 +645,8 @@ class AirwayGraph:
                                             min_branch_length, radii)
 
     def measure_diameters(self, mask: np.ndarray, spacing: Sequence[float], origin: Sequence[float],
-                          step: float = 0.5, grid: float = 0.25) -> "AirwayGraph":
+                          step: float = 0.5, grid: float = 0.25,
+                          direction: Optional[np.ndarray] = None) -> "AirwayGraph":
         """Measure the lumen diameter along every centre line from the segmentation.
 
         At points every ``step`` mm the mask is sampled on the plane perpendicular to the
@@ -638,6 +667,7 @@ class AirwayGraph:
             raise ValueError("graph has no CT transform (build it with from_mask / from_polylines)")
         m = mask.astype(np.float32)
         sp, org = np.asarray(spacing, float), np.asarray(origin, float)
+        Dm = np.eye(3) if direction is None else np.asarray(direction, float)
         for b in self.branches.values():
             L = b.length
             ss = np.unique(np.r_[np.arange(0.0, L, step), L])
@@ -654,7 +684,7 @@ class AirwayGraph:
                 e1, e2, _ = self.tangent_basis(d)
                 P = p[None, None, :] + U[..., None] * e1 + V[..., None] * e2       # standard frame
                 Pct = P @ R + self.ct_origin                                        # -> CT (mm)
-                idx = ((Pct - org) / sp).reshape(-1, 3).T
+                idx = (((Pct - org) @ Dm) / sp).reshape(-1, 3).T
                 sec = map_coordinates(m, idx, order=1, mode="constant", cval=0.0).reshape(n, n) > 0.5
                 lab, _ = cc_label(sec)
                 k = lab[ctr, ctr]

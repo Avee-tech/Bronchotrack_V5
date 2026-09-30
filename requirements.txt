@@ -6,8 +6,9 @@ matplotlib>=3.7
 torch>=2.0
 torchvision>=0.15
 kornia>=0.7          # LoFTR for BronchoTrack-LC
-SimpleITK>=2.2       # reading .nii/.nrrd segmentations (build_graph.py)
+SimpleITK>=2.2       # reading .nii segmentations
+pynrrd>=1.0          # reading Slicer .seg.nrrd / .nrrd (slicer_to_airway.py)
+vtk>=9.0             # Slicer models / centre lines, virtual-bronchoscopy renders
 # optional
 # ultralytics        # --detector ultralytics
-# vtk                # --vtk centre lines
 # pytest             # tests

@@ -256,3 +256,38 @@ v3 is equal or better on all 12 benchmark run/condition pairs. On the videos it 
 short-lived switches (location changes 16 → 12 on ModelV3_1, 17 → 10 on testvideo3; stays
 under 10 frames 6 → 2 and 8 → 2). It does not undo a wrong label that the association keeps for
 many frames (testvideo3 from frame 150). Tables: `results/ModelV3/benchmark/tables_v3_*.txt`.
+
+## From 3D Slicer to the airway graph (`tools/slicer_to_airway.py`)
+
+One command turns what you export from 3D Slicer into the graph `tools/run.py --graph` needs:
+
+```bash
+python tools/slicer_to_airway.py ModelV3.vtk                              # surface model
+python tools/slicer_to_airway.py Segmentation.seg.nrrd --segment airway   # Segment Editor output
+python tools/slicer_to_airway.py CenterlineModel.vtk                      # Extract Centerline output
+python tools/run.py --video case.mp4 --graph ModelV3_airway/airway.json ...
+```
+
+| Slicer export | How to get it in Slicer | Handled as |
+|---|---|---|
+| Surface model `.vtk/.vtp/.stl/.obj/.ply` | Segmentations → Export to files, or Models → Save | voxelised at 0.5 mm |
+| Segmentation `.seg.nrrd`, label map `.nrrd/.nii(.gz)` | Segment Editor → Save | the segment named `*airway*` (or `--segment`) |
+| Centre-line model `.vtk/.vtp` with `Radius` | Extract Centerline → Centerline model → Save | rebuilt as a tube (0.3 mm voxels) |
+
+Coordinates are read in the file's own system: Slicer ≥ 4.11 records `SPACE=LPS` (or RAS) in
+models and `space` in NRRD; override with `--space`. Voxel direction matrices (flipped/oblique
+axes) are honoured. Steps: mask → 3-D skeleton → branches (leaf spurs < 4 mm pruned) →
+trachea from the most superior point, right/left main bronchus from the patient's right → the
+paper's standard frame → lumen diameter along every centre line → labels (`--labels anatomical`:
+trachea, R, L, R1, R2, R11 …, default; `numeric`: the paper's 0, 00, 01 …).
+
+Outputs in `<input>_airway/`: `airway.json` (for the pipeline), `airway_nodes.json` (thesis
+format, original Slicer coordinates, radius per centre-line point), `airway_preview.png`, and
+`airway_centerlines.vtk` + `airway_labels.mrk.json` — drag both into Slicer on top of the model
+to check the branches and labels. The tool prints trachea and main-bronchus lengths/diameters and
+warns about likely problems (left/right swapped, trachea cut short, gaps).
+
+Checked on ModelV3: the surface model, a RAS `.seg.nrrd` with flipped axes and an Extract
+Centerline-style model (overlapping root-to-leaf paths) all give the same 21 branches and labels
+(end points identical for model/segmentation, median 0.6 mm apart for the centre line).
+Example output: `results/ModelV3/slicer_converted/`.
