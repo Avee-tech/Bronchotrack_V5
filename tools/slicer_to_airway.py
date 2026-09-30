@@ -191,6 +191,9 @@ def main():
                     help="anatomical: trachea/R/L/R1...; numeric: the paper's 0/00/01...")
     ap.add_argument("--out-dir")
     a = ap.parse_args()
+    if not os.path.isfile(a.input):
+        sys.exit(f"file not found: {a.input}\n(give the full path, e.g. "
+                 f"python tools/slicer_to_airway.py ~/path/to/ModelV3.vtk --out-dir airway)")
 
     stem = os.path.basename(a.input)
     for ext in (".seg.nrrd", ".nii.gz", ".mrk.json"):
