@@ -12,6 +12,30 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+## Setup (Linux ubuntu)
+
+```powershell
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip libgl1 libglib2.0-0
+
+git clone https://github.com/Avee-tech/Bronchotrack_V5.git
+cd Bronchotrack_V5
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# airway graph from the 3D Slicer model
+python tools/slicer_to_airway.py ModelV3.vtk --out-dir airway
+
+# or import your thesis-format graph instead
+python tools/import_graph_json.py airway_graph.json --out airway/airway.json
+
+# localisation (v3), with the overlay video and the airway map on the right
+python tools/run.py --video ModelV3_1.mp4 --graph airway/airway.json --weights best.pt \
+    --geometry --motion --map --device cpu --out-dir out/ModelV3_1
+```
+
 ## Run
 
 **1. Build the airway graph.** Export the airway from 3D Slicer as one of:
