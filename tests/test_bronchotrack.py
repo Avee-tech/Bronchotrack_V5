@@ -306,3 +306,44 @@ def test_ratio_model_and_fusion_prefers_geometric_fit():
     S2 = build_subgraph(boxes, np.ones(2), track_ids=[1, 2], track_ages=[0, 0])
     res2 = GeometricFusion(g).fuse(S2, "01", np.radians(30))
     assert res2.labels[0][0] == "010"
+
+
+# ------------------------------------------------------------------ version 3: motion model
+def test_motion_model_cannot_jump_generations():
+    from bronchotrack.motion import MotionConfig, MotionModel
+    g = make_tree(4, seed=3)
+    cfg = MotionConfig(speed=7.0, fps=30.0, n_particles=1000, seed=1)
+    m = MotionModel(g, cfg)
+    m.reset("0", last_mm=5.0)                    # just above the carina
+    deep = [l for l in g.labels() if g.generation(l) == 3][0]
+    # distance from the carina to the start of ``deep``
+    dist = sum(g[a].length for a in g.ancestors(deep) if a != "0")
+    frames_needed = int(dist / cfg.step_max)
+    for k in range(frames_needed - 1):           # evidence says "deep" every frame ...
+        m.predict()
+        m.update({deep: 1.0})
+        assert m.estimate()[0] != deep           # ... but it cannot be reached yet
+    assert m.cfg.step_max == pytest.approx(2 * 7.0 / 30.0)
+
+
+def test_motion_model_ignores_single_frame_flicker_and_follows_persistent_evidence():
+    from bronchotrack.motion import MotionConfig, MotionModel
+    g = make_tree(3, seed=4)
+    m = MotionModel(g, MotionConfig(speed=10.0, fps=30.0, n_particles=1500, seed=2), start="01")
+    for k in range(60):
+        m.predict()
+        m.update({"01": 1.0} if k != 30 else {"000": 1.0})   # one wrong frame
+        if k >= 5:
+            assert m.estimate()[0] == "01"
+    p = m.branch_probs()
+    assert p.get("01", 0) > 0.8
+
+
+def test_reach_probs_allow_one_generation_near_bifurcation():
+    from bronchotrack.motion import MotionConfig, MotionModel
+    g = make_tree(3, seed=4)
+    m = MotionModel(g, MotionConfig(speed=10.0, fps=30.0, n_particles=500, seed=0))
+    m.reset("0", last_mm=2.0)                    # right at the carina
+    r = m.reach_probs()
+    assert r.get("0", 0) > 0.99 and r.get("00", 0) > 0.99 and r.get("01", 0) > 0.99
+    assert r.get("000", 0) == 0                  # two generations away: not within 1 s

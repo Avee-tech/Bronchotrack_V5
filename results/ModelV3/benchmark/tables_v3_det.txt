@@ -1,0 +1,54 @@
+6 trajectories, 3591 frames
+
+Tracking (mean over trajectories)      MOTA     IDF1     HOTA       FP       FN      IDs      FPS
+BronchoTrack                         -16.97    25.40    19.96   636.00  1009.33     6.67   755.85
+BronchoTrack + ratio fusion          -16.97    25.40    19.96   636.00  1009.33     6.67   596.86
+v3: ratio fusion + motion model      -16.97    25.40    19.96   636.00  1009.33     6.67   524.31
+BronchoTrack + motion model          -16.97    25.40    19.96   636.00  1009.33     6.67   518.90
+
+Localisation                     LocAcc(all frames)  mean per-traj  gen.err  tree dist   AP    p vs BronchoTrack
+BronchoTrack                           32.83 %         36.43     +0.58      1.96    3.73   nan 
+BronchoTrack + ratio fusion            33.17 %         36.75     +0.41      1.80    4.32   1.000 wilcoxon
+v3: ratio fusion + motion model        36.48 %         40.16     +0.61      1.90    4.78   0.084 paired t-test
+BronchoTrack + motion model            35.28 %         39.00     +0.40      1.77    3.72   0.219 wilcoxon
+
+Per-trajectory Loc Acc              run01   run02   run03   run04   run05   run06
+BronchoTrack                          52.5    45.4    69.1    12.7    14.7    24.2
+BronchoTrack + ratio fusion           52.5    45.4    69.1    12.7    14.7    26.1
+v3: ratio fusion + motion model       57.4    52.0    69.5    13.0    14.5    34.5
+BronchoTrack + motion model           57.4    44.8    69.5    13.0    14.8    34.5
+
+Per-branch Loc Acc (mean over trajectories visiting it)
+branch                        BT       BT + ratio fusion  v3: ratio fusion + mot       BT + motion model
+0                           80.3                    80.3                    80.8                    81.6
+00                          15.7                    16.7                    23.1                    23.1
+01                          28.3                    28.3                    22.9                    29.3
+000                          0.0                     0.0                     0.0                     0.0
+001                          0.0                     0.0                     0.0                     0.0
+010                         25.9                    25.9                    35.8                    24.3
+011                          0.0                     0.0                     0.0                     0.0
+0000                         0.0                     0.0                     0.0                     0.0
+0001                         0.0                     0.0                     0.0                     0.0
+0010                         0.0                     0.0                     0.0                     0.0
+0100                        29.6                    29.6                    29.6                    29.6
+0101                         0.0                     0.0                    92.9                     0.0
+0111                         0.0                     0.0                     0.0                     0.0
+01000                        0.0                     0.0                     0.0                     0.0
+
+BronchoTrack + ratio fusion: location probability mean 0.88; when correct 0.94 (n=816), when wrong 0.86 (n=2400)
+   p in [0.00,0.60):   150 frames, accuracy 0.7 %
+   p in [0.60,0.80):   367 frames, accuracy 9.3 %
+   p in [0.80,0.95):  1859 frames, accuracy 22.6 %
+   p in [0.95,1.00):   840 frames, accuracy 42.9 %
+
+v3: ratio fusion + motion model: location probability mean 0.96; when correct 0.98 (n=1310), when wrong 0.94 (n=2281)
+   p in [0.00,0.60):    82 frames, accuracy 11.0 %
+   p in [0.60,0.80):   178 frames, accuracy 15.2 %
+   p in [0.80,0.95):   312 frames, accuracy 13.8 %
+   p in [0.95,1.00):  3019 frames, accuracy 40.8 %
+
+BronchoTrack + motion model: location probability mean 0.96; when correct 0.98 (n=1267), when wrong 0.94 (n=2324)
+   p in [0.00,0.60):    84 frames, accuracy 9.5 %
+   p in [0.60,0.80):   181 frames, accuracy 14.9 %
+   p in [0.80,0.95):   306 frames, accuracy 13.1 %
+   p in [0.95,1.00):  3020 frames, accuracy 39.5 %

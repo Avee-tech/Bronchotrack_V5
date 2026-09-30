@@ -13,6 +13,7 @@ from .airway_graph import AirwayGraph
 from .association import AirwayAssociator, AssociationConfig
 from .detector import Detections
 from .geometry import FusionConfig, GeometricFusion, apply_fusion
+from .motion import MotionConfig, MotionModel
 from .subgraph import build_subgraph
 from .tracker import LumenTracker, TrackerConfig
 
@@ -29,6 +30,9 @@ class BronchoTrackConfig:
     prune_iou: float = 0.6          # single-child IoU above which parent/child are duplicates
     use_geometry: bool = False      # extension: fuse the roll-corrected diameter:distance cue
     fusion: FusionConfig = field(default_factory=FusionConfig)
+    use_motion: bool = False        # version 3: speed-constrained motion model of the scope
+    motion: MotionConfig = field(default_factory=MotionConfig)
+    export_particles: int = 0       # particles to return per frame for drawing (0 = none)
 
 
 @dataclass
@@ -54,6 +58,8 @@ class FrameResult:
     runtime_ms: Dict[str, float] = field(default_factory=dict)
     loc_prob: Optional[float] = None          # geometry extension
     assoc_location: Optional[str] = None      # association-only location (before fusion)
+    evidence_location: Optional[str] = None   # per-frame Eq. (9) location before the motion model
+    particles: Optional[np.ndarray] = None    # motion-model particle positions (standard frame)
     ratio_err_assoc: Optional[float] = None
     ratio_err_fused: Optional[float] = None
 
@@ -75,6 +81,10 @@ class BronchoTrack:
             from .loop_closure import LoopClosure
             self.lc = LoopClosure(matcher, eta=cfg.lc_eta, lam=cfg.lc_lambda)
         self.fusion = GeometricFusion(graph, cfg.fusion) if (cfg.use_geometry and self.assoc is not None) else None
+        self.motion = MotionModel(graph, cfg.motion) if (cfg.use_motion and self.assoc is not None) else None
+        if self.motion is not None and self.fusion is not None and cfg.motion.use_label_age:
+            self.fusion.cfg.use_label_age = True
+        self._label_hist: Dict[int, tuple] = {}  # track id -> (label, frame it was assigned)
         self.t = -1
 
     @property
@@ -117,9 +127,16 @@ class BronchoTrack:
         loop = False
         t0 = time.perf_counter()
         if self.assoc is not None:
+            was_init = self.assoc.initialized
             for n in S:  # inter-frame association: labels travel with tracklets
                 n.label = by_det[n.det].label
+                n.prev_label = n.label
+                h = self._label_hist.get(n.track_id)
+                n.label_age = (t - h[1]) if (h is not None and h[0] == n.label) else 0
             self.assoc.step(S, t, (W, H), frame if self.lc is not None else None)
+            if self.motion is not None and self.assoc.initialized and not was_init:
+                # the carina was just recognised: the tip is within view range of it
+                self.motion.reset(self.M.root, last_mm=self.cfg.motion.init_range)
             rt["graph"] = 1e3 * (time.perf_counter() - t0)
 
             # ---- adapted loop closure (Sec. III-D)
@@ -136,19 +153,39 @@ class BronchoTrack:
         # ---- extension: roll-corrected diameter:distance cue fused with the association
         fres = None
         assoc_loc = self.location
+        prior = None
+        if self.motion is not None:
+            self.motion.predict()                 # where can the scope be now?
+            prior = self.motion.reach_probs()     # ... and within the next second
         if self.fusion is not None and self.assoc.initialized:
             t0 = time.perf_counter()
-            fres = self.fusion.fuse(S, self.assoc.loc, self.assoc.roll)
+            fres = self.fusion.fuse(S, self.assoc.loc, self.assoc.roll, loc_prior=prior,
+                                    prior_weight=self.cfg.motion.prior_weight)
             if self.cfg.fusion.feedback:
                 apply_fusion(S, fres)
                 if fres.location is not None:
                     self.assoc.loc = fres.location
             rt["geometry"] = 1e3 * (time.perf_counter() - t0)
+        evidence_loc = fres.location if fres is not None else self.location
+        mloc, mprob = None, None
+        if self.motion is not None:
+            t0 = time.perf_counter()
+            if self.assoc.initialized:
+                votes = fres.votes if fres is not None else dict(self.assoc.last_votes)
+            else:
+                votes = {self.M.root: 1.0}
+            self.motion.update(votes)
+            mloc, mprob = self.motion.estimate()
+            self.assoc.loc = mloc                  # feedback: gating / recovery next frame
+            rt["motion"] = 1e3 * (time.perf_counter() - t0)
 
         if self.assoc is not None:
             # write refined labels back to the tracklets
             for n in S:
                 by_det[n.det].label = n.label
+                h = self._label_hist.get(n.track_id)
+                if h is None or h[0] != n.label:
+                    self._label_hist[n.track_id] = (n.label, t)
 
         levels = {n.det: n.level for n in S}
         out = []
@@ -163,11 +200,16 @@ class BronchoTrack:
                 # original pipeline: the association's own confidence in the label (track age)
                 a_ = (tr.label, 0.55 + 0.40 * (1 - np.exp(-max(tr.age(t), 0) / 10.0)))
             out.append(TrackOut(tr.track_id, tr.box.copy(), tr.score, lab, levels[d], tr.activated, prob, a_, r_))
-        r = FrameResult(t, fres.location if fres is not None else self.location,
+        r = FrameResult(t, mloc if mloc is not None else evidence_loc,
                         0.0 if self.assoc is None else self.assoc.roll, out, loop, rt)
         r.assoc_location = assoc_loc
+        r.evidence_location = evidence_loc
         if fres is not None:
             r.loc_prob, r.ratio_err_assoc, r.ratio_err_fused = fres.loc_prob, fres.ratio_err_assoc, fres.ratio_err_fused
+        if mloc is not None:
+            r.loc_prob = mprob
+            if self.cfg.export_particles:
+                r.particles = self.motion.positions(self.cfg.export_particles)
         return r
 
 
@@ -208,6 +250,8 @@ def draw(frame: np.ndarray, res: FrameResult, show_roll: bool = True) -> np.ndar
         s = f"loc: {res.location}"
         if res.loc_prob is not None:
             s += f"  p={res.loc_prob:.2f}"
+        if res.particles is not None and res.evidence_location is not None:
+            s += f"  (evidence: {res.evidence_location})"
         if show_roll:
             s += f"  roll {np.degrees(res.roll):+.0f}deg"
         if res.loop_closed:
@@ -240,7 +284,7 @@ class AirwayMap:
         p = (b.points if b.points is not None else np.stack([b.start, b.end]))[:, :2]
         return (p * self.s + self.off).astype(np.int32).reshape(-1, 1, 2)
 
-    def render(self, loc: Optional[str], seen: List[str]) -> np.ndarray:
+    def render(self, loc: Optional[str], seen: List[str], particles: Optional[np.ndarray] = None) -> np.ndarray:
         img = self.base.copy()
         for l in seen:
             if l in self.g:
@@ -249,12 +293,18 @@ class AirwayMap:
             cv2.polylines(img, [self._px(self.g[loc])], False, (40, 40, 255), 4)
             e = self.g[loc].end[:2] * self.s + self.off
             cv2.putText(img, loc, (int(e[0]) + 4, int(e[1])), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (40, 40, 255), 1)
+        if particles is not None and len(particles):  # motion model belief (version 3)
+            q = (particles[:, :2] * self.s + self.off).astype(int)
+            for x, y in q:
+                if 0 <= x < self.size and 0 <= y < self.size:
+                    cv2.circle(img, (int(x), int(y)), 2, (0, 200, 255), -1)
+            cv2.putText(img, "motion model", (6, self.size - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 255), 1)
         return img
 
 
 def draw_with_map(frame: np.ndarray, res: FrameResult, amap: AirwayMap) -> np.ndarray:
     img = draw(frame, res)
-    inset = amap.render(res.location, [t.label for t in res.tracks if t.activated and t.label])
+    inset = amap.render(res.location, [t.label for t in res.tracks if t.activated and t.label], res.particles)
     h = img.shape[0]
     if inset.shape[0] != h:
         k = h / inset.shape[0]

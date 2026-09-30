@@ -150,6 +150,7 @@ class FusionConfig:
     explore_children: bool = True  # ... and its children (one-generation slips)
     entry_factor: float = 1.1    # measure each child at 1.1 x parent radius from the bifurcation
     feedback: bool = True        # write fused labels/location back for the next frame
+    use_label_age: bool = False  # confidence from how long a lumen kept its label (version 3)
 
 
 @dataclass
@@ -163,6 +164,7 @@ class FusionResult:
     loc_prob: float = 0.0
     ratio_err_assoc: Optional[float] = None   # mean |log(obs/actual)| with association labels
     ratio_err_fused: Optional[float] = None   # ... with fused labels
+    votes: Dict[str, float] = field(default_factory=dict)  # probability-weighted Eq. (9) votes
     pairs: List[Tuple[int, int, float, float, float, float]] = field(default_factory=list)
     # (det_i, det_j, obs_i, actual_i, obs_j, actual_j) for the fused labels
 
@@ -176,11 +178,29 @@ class GeometricFusion:
     # ------------------------------------------------------------------ utils
     def _q(self, n: LumenNode) -> float:
         c = self.cfg
-        return c.q_min + (c.q_max - c.q_min) * (1 - np.exp(-max(n.track_age, 0) / c.tau_age))
+        age = n.label_age if (c.use_label_age and n.label_age >= 0) else n.track_age
+        return c.q_min + (c.q_max - c.q_min) * (1 - np.exp(-max(age, 0) / c.tau_age))
+
+    def _implied_location(self, S: LumenSubgraph, members, perm, n_p: int) -> Optional[str]:
+        """Location a label hypothesis implies through Eq. (9)."""
+        for m, lab in zip(members, perm):
+            if lab is not None and lab in self.g:
+                return self.g.ancestor_strict(lab, m.level - 1 if n_p == 1 else m.level)
+        return None
 
     def _log_prior(self, n: LumenNode, lab: Optional[str]) -> float:
         if lab is None:
             return self.cfg.none_logp
+        if self.cfg.use_label_age and n.prev_label is not None and n.label is not None \
+                and n.prev_label != n.label:
+            # version 3: the association relabelled a tracked lumen this frame; the new label
+            # competes with the one the lumen had kept for label_age frames
+            w_prev, w_cur = self._q(n), self.cfg.q_min
+            if lab == n.label:
+                return float(np.log(0.95 * w_cur / (w_prev + w_cur)))
+            if lab == n.prev_label:
+                return float(np.log(0.95 * w_prev / (w_prev + w_cur)))
+            return float(np.log(0.05 / self.cfg.n_alt))
         if n.label is None:
             return float(np.log(1.0 / self.cfg.n_alt))
         q = self._q(n)
@@ -220,8 +240,12 @@ class GeometricFusion:
         return self.g.parent(assoc_loc) if assoc_loc in self.g else None
 
     # ------------------------------------------------------------------- main
-    def fuse(self, S: LumenSubgraph, assoc_loc: str, roll: float) -> FusionResult:
+    def fuse(self, S: LumenSubgraph, assoc_loc: str, roll: float,
+             loc_prior: Optional[Dict[str, float]] = None, prior_weight: float = 1.0) -> FusionResult:
+        """``loc_prior`` (version 3): predicted probability of each branch from the motion
+        model; every hypothesis is scored with prior_weight x log P_motion(its Eq. (9) location)."""
         res = FusionResult()
+        n_p_all = len(S.primary())
         nodes = list(S)
         if not nodes:
             res.location, res.loc_prob = assoc_loc, 0.0
@@ -264,6 +288,9 @@ class GeometricFusion:
                     lp = sum(self._log_prior(m, l) for m, l in zip(members, perm))
                     if not is_root:  # the enclosing lumen's own reading supports P
                         lp += self._log_prior(S.nodes[members[0].parent], P)
+                    if loc_prior is not None:  # version 3: can the scope be there yet?
+                        loc = self._implied_location(S, members, perm, n_p_all)
+                        lp += prior_weight * float(np.log(0.02 + loc_prior.get(loc, 0.0)))
                     lg = 0.0
                     for (i, j), o in obs.items():
                         if perm[i] is not None and perm[j] is not None:
@@ -340,6 +367,7 @@ class GeometricFusion:
             if loc is not None:
                 votes[loc] = votes.get(loc, 0.0) + p
                 n_vote += 1
+        res.votes = dict(votes)
         if votes:
             res.location = max(votes, key=votes.get)
             res.loc_prob = votes[res.location] / n_vote

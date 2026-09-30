@@ -30,6 +30,8 @@ from bronchotrack.metrics import label_ap, localization_metrics, tracking_metric
 from bronchotrack.pipeline import BronchoTrack, BronchoTrackConfig  # noqa: E402
 from bronchotrack.reid import build_reid  # noqa: E402
 
+SPEED_MM_PER_FRAME = 0.5  # the renders advance 0.5 mm per frame (make_vb_benchmark --speed)
+
 VARIANTS = {
     "BronchoTrack w/o KF": dict(use_kf=False),
     "BronchoTrack w/o Re-ID": dict(use_reid=False),
@@ -38,6 +40,8 @@ VARIANTS = {
     "BronchoTrack-LC": dict(use_lc=True),
     "BronchoTrack + ratio fusion": dict(use_geometry=True),
     "BronchoTrack-LC + ratio fusion": dict(use_lc=True, use_geometry=True),
+    "v3: ratio fusion + motion model": dict(use_geometry=True, use_motion=True),
+    "BronchoTrack + motion model": dict(use_motion=True),
 }
 
 
@@ -102,7 +106,8 @@ def oracle_reid(run_dir, noise=0.3, seed=0):
 
 def run_variant(run_dir, g, dets_path, v, reid_kind, high_thresh):
     cfg = BronchoTrackConfig(use_graph=v.get("use_graph", True), use_lc=v.get("use_lc", False),
-                             use_geometry=v.get("use_geometry", False))
+                             use_geometry=v.get("use_geometry", False), use_motion=v.get("use_motion", False))
+    cfg.motion.speed, cfg.motion.fps = SPEED_MM_PER_FRAME * 30.0, 30.0  # renders at 30 fps
     cfg.tracker.use_kf = v.get("use_kf", True)
     cfg.tracker.high_thresh = cfg.tracker.new_track_thresh = high_thresh
     if not v.get("use_reid", True):
@@ -146,7 +151,10 @@ def main():
     ap.add_argument("--variants", nargs="*", default=list(VARIANTS))
     ap.add_argument("--out", required=True)
     ap.add_argument("--oracle-dets", action="store_true", help="use jittered GT boxes instead of the detector")
+    ap.add_argument("--speed", type=float, default=0.5, help="average scope speed for the motion model, mm/frame")
     a = ap.parse_args()
+    global SPEED_MM_PER_FRAME
+    SPEED_MM_PER_FRAME = a.speed
     graph = a.graph or os.path.join(os.path.dirname(__file__), "..", "results", "ModelV3", "airway_v3.json")
     g = AirwayGraph.from_json(graph)
     runs = sorted(d for d in glob.glob(os.path.join(a.bench, "run*")) if os.path.isdir(d))

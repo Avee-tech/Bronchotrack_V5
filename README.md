@@ -219,3 +219,40 @@ with and without fusion (fusion only relabels). Main failure modes, visible in e
   different box convention), so near bifurcations one sibling is often missed.
 The fused location probability ranks frames (accuracy 1 % for p < 0.6 up to 43 % for p ≥ 0.95)
 but is over-confident.
+
+## Version 3: speed-constrained motion model (`bronchotrack/motion.py`)
+
+`run.py --geometry --motion [--speed 7 --speed-max-factor 2]`. Versions: **v1** = the paper's
+method, **v2** = v1 + ratio fusion (`--geometry`), **v3** = v2 + motion model.
+
+The scope tip is tracked along the airway centre lines with a particle filter:
+* **State**: branch, arc length s and signed velocity v (+ insertion, − retraction) per particle.
+* **Predict**: v changes gradually (random walk, about one average speed per second), clipped
+  to ±v_max = 2 × average speed; s += v. Past the end of a branch a particle continues into one of
+  the children, past its start back into the parent. The reachable region grows at most
+  v_max per second, so the location cannot jump across generations instantly.
+* **Update**: the fused labels' probability-weighted Eq. (9) votes. Evidence for a child also
+  supports the last ~20 mm of its parent (and vice versa), which both handles the Eq. (9)
+  ambiguity at a bifurcation and lets the belief cross it. A likelihood floor (0.05) keeps
+  single wrong frames from moving it.
+* **Output**: the branch with the largest posterior mass and that mass as its probability
+  (`p=` on the top line; `evidence:` shows the per-frame Eq. (9) location before the model).
+  The particles are drawn on the airway map (orange).
+* **Feedback**: fusion hypotheses are weighted by the probability that their location is
+  reachable within 1 s; the location is fed back to the association (gating, recovery); when
+  the carina is first recognised the tip is placed within 40 mm of it; a relabel of a tracked
+  lumen competes with the label it had kept (confidence grows with label age, not track age).
+
+Average speed: 7 mm/s, measured from the render-registered camera paths of the ModelV3 videos
+(≈ 230 mm in 29–36 s; short bursts up to 10–17 mm/s).
+
+| ModelV3 render benchmark (ground truth, 6 runs) | v1 | v2 | v3 | p v3 vs v1 |
+|---|---|---|---|---|
+| Loc Acc, `best.pt` detector | 32.8 % | 33.2 % | **36.5 %** | 0.084 |
+| Loc Acc, ground-truth boxes | 26.1 % | 31.5 % | **37.5 %** | 0.054 |
+| Synthetic trees (6 seqs, a bifurcation every ~0.7 s) | 78.3 % | 78.1 % | 75.9 % | |
+
+v3 is equal or better on all 12 benchmark run/condition pairs. On the videos it removes
+short-lived switches (location changes 16 → 12 on ModelV3_1, 17 → 10 on testvideo3; stays
+under 10 frames 6 → 2 and 8 → 2). It does not undo a wrong label that the association keeps for
+many frames (testvideo3 from frame 150). Tables: `results/ModelV3/benchmark/tables_v3_*.txt`.

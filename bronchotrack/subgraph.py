@@ -32,6 +32,8 @@ class LumenNode:
     track_id: Optional[int] = None
     track_age: int = -1
     label: Optional[str] = None
+    label_age: int = -1            # frames the lumen had kept its previous label (-1: unknown)
+    prev_label: Optional[str] = None  # the lumen's label before this frame's association
 
     @property
     def center(self) -> np.ndarray:
