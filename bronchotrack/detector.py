@@ -1,12 +1,13 @@
 """Lumen detector (paper Sec. III-A).
 
-The paper uses YOLOv7 (ref. [28]) trained on a single class ``lumen`` with
+**Default: YOLOv12** (Ultralytics ``yolo12{n,s,m,l,x}``) lumen weights. The paper used YOLOv7 (ref. [28]), trained on a single class ``lumen`` with
 256x256 inputs, a detection threshold of 0.1 and an NMS IoU threshold of 0.6
 (patient) / 0.7 (porcine) (Sec. IV-A). The relaxed IoU threshold keeps
 overlapping parent/child lumen boxes (Fig. 3).
 
 Three back-ends are provided behind a common ``__call__(frame) -> Detections``:
 
+* ``YOLOv12Detector``       YOLOv12 checkpoint through Ultralytics (default)
 * ``YOLOv7Detector``        official WongKinYiu/yolov7 checkpoint (paper setting)
 * ``UltralyticsDetector``   any ultralytics YOLO checkpoint (v5/v8/11 ...)
 * ``AnnotationDetector``    replays ground-truth / pre-computed boxes (evaluation)
@@ -75,7 +76,12 @@ class YOLOv7Detector:
 
         self.torch = torch
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
-        self.model = attempt_load(weights, map_location=self.device).eval()
+        load = torch.load  # the official checkpoints are full pickles: torch>=2.6 needs weights_only=False
+        torch.load = lambda *a, **k: load(*a, **{"weights_only": False, **k})
+        try:
+            self.model = attempt_load(weights, map_location=self.device).eval()
+        finally:
+            torch.load = load
         self.half = self.device.type == "cuda"
         if self.half:
             self.model.half()
@@ -84,7 +90,12 @@ class YOLOv7Detector:
     def __call__(self, frame: np.ndarray) -> Detections:
         torch = self.torch
         h0, w0 = frame.shape[:2]
-        img = cv2.resize(frame, (self.img_size, self.img_size))
+        # letterbox as in YOLOv7 training (keep the aspect ratio, pad with grey 114)
+        r = self.img_size / max(h0, w0)
+        nw, nh = int(round(w0 * r)), int(round(h0 * r))
+        px, py = (self.img_size - nw) // 2, (self.img_size - nh) // 2
+        img = np.full((self.img_size, self.img_size, 3), 114, np.uint8)
+        img[py:py + nh, px:px + nw] = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
         x = torch.from_numpy(img[:, :, ::-1].transpose(2, 0, 1).copy()).to(self.device)
         x = (x.half() if self.half else x.float()) / 255.0
         with torch.no_grad():
@@ -98,7 +109,9 @@ class YOLOv7Detector:
                       pred[:, 0] + pred[:, 2] / 2, pred[:, 1] + pred[:, 3] / 2], 1)
         keep = nms(b, conf, self.iou_thr)
         b, conf = b[keep], conf[keep]
-        b *= np.array([w0 / self.img_size, h0 / self.img_size] * 2)
+        b = (b - np.array([px, py, px, py])) / r
+        b[:, [0, 2]] = b[:, [0, 2]].clip(0, w0)
+        b[:, [1, 3]] = b[:, [1, 3]].clip(0, h0)
         return Detections(b.astype(np.float32), conf.astype(np.float32))
 
 
@@ -120,6 +133,44 @@ class UltralyticsDetector:
             return Detections.empty()
         return Detections(r.boxes.xyxy.cpu().numpy().astype(np.float32),
                           r.boxes.conf.cpu().numpy().astype(np.float32))
+
+
+class YOLOv12Detector(UltralyticsDetector):
+    """YOLOv12 lumen detector (Ultralytics >= 8.3.78; attention-centric YOLO with an NMS head).
+
+    ``classes``: keep only these class ids (e.g. a lumen-only subset of a 2-class model);
+    ``grayscale``: convert frames to grey before detection, for weights trained on grey images.
+    """
+
+    def __init__(self, weights: str, img_size: int = 640, conf_thr: float = 0.1, iou_thr: float = 0.6,
+                 device: Optional[str] = None, classes: Optional[List[int]] = None, grayscale: bool = False,
+                 strict: bool = False):
+        super().__init__(weights, img_size, conf_thr, iou_thr, device, classes)
+        self.grayscale = grayscale
+        self.family = self._family()
+        if self.family != "yolo12":
+            msg = (f"{os.path.basename(str(weights))} looks like a {self.family or 'non-YOLOv12'} model, "
+                   "not YOLOv12; running it anyway")
+            if strict:
+                raise ValueError(msg)
+            print(f"[BronchoTrack] warning: {msg}")
+        self.names = getattr(self.model, "names", {})
+
+    def _family(self) -> Optional[str]:
+        yml = getattr(getattr(self.model, "model", None), "yaml", {}) or {}
+        name = str(yml.get("yaml_file", "")) + " " + str(getattr(self.model, "ckpt_path", "") or "")
+        low = name.lower()
+        for fam in ("yolov12", "yolo12", "yolo11", "yolov8", "yolov5", "yolo26", "yolov10", "rtdetr"):
+            if fam in low:
+                return "yolo12" if fam in ("yolov12", "yolo12") else fam
+        # a checkpoint trained from yolo12*.yaml keeps its A2C2f (area-attention) blocks
+        mods = {type(m).__name__ for m in getattr(self.model, "model", self.model).modules()}
+        return "yolo12" if "A2C2f" in mods else None
+
+    def __call__(self, frame: np.ndarray) -> Detections:
+        if self.grayscale and frame.ndim == 3:
+            frame = cv2.cvtColor(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+        return super().__call__(frame)
 
 
 class AnnotationDetector:
@@ -169,7 +220,10 @@ def build_detector(kind: str, weights: Optional[str] = None, **kw):
     if kind == "yolov7":
         repo = kw.pop("repo", os.environ.get("YOLOV7_REPO", "yolov7"))
         return YOLOv7Detector(weights, repo=repo, **kw)
+    if kind in ("yolov12", "yolo12"):
+        return YOLOv12Detector(weights, **kw)
     if kind in ("ultralytics", "yolo"):
+        kw.pop("grayscale", None)
         return UltralyticsDetector(weights, **kw)
     if kind in ("mot", "annotation"):
         return AnnotationDetector.from_mot_txt(weights)

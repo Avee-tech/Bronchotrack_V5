@@ -3,6 +3,10 @@
 
 Examples
 --------
+# default: YOLOv12 lumen detector + airway graph, version 3
+python tools/run.py --video case01.mp4 --graph airway.json --weights best.pt \
+    --reid hist --geometry --motion --map --out-dir out/case01
+
 # paper setting: YOLOv7 detector + ResNet50 Re-ID + airway graph (+ loop closure)
 python tools/run.py --video case01.mp4 --graph case01_airway.json \
     --detector yolov7 --weights lumen_yolov7.pt --yolov7-repo ~/yolov7 \
@@ -50,10 +54,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--video", required=True, help="video file, image folder or camera index")
     ap.add_argument("--graph", help="airway graph JSON (tools/build_graph.py)")
-    ap.add_argument("--detector", default="yolov7", choices=["yolov7", "ultralytics", "mot"])
+    ap.add_argument("--detector", default="yolov12", choices=["yolov12", "yolov7", "ultralytics", "mot"],
+                    help="yolov12 (default), yolov7 (paper), ultralytics (any other Ultralytics model), "
+                         "mot (cached detections)")
     ap.add_argument("--weights", required=True, help="detector weights (or MOT txt for --detector mot)")
     ap.add_argument("--yolov7-repo", default=os.environ.get("YOLOV7_REPO", "yolov7"))
-    ap.add_argument("--img-size", type=int, default=256)
+    ap.add_argument("--img-size", type=int, default=None, help="detector input size (yolov12: 640, yolov7: 256)")
+    ap.add_argument("--classes", type=int, nargs="*", help="keep only these detector class ids")
+    ap.add_argument("--grayscale", action="store_true", help="grey frames for weights trained on grey images")
     ap.add_argument("--conf", type=float, default=0.1, help="detection threshold (paper: 0.1)")
     ap.add_argument("--nms-iou", type=float, default=0.6, help="0.6 patient / 0.7 porcine")
     ap.add_argument("--reid", default="auto", choices=["auto", "resnet50", "hist", "none"])
@@ -84,10 +92,14 @@ def main():
     a = ap.parse_args()
 
     kw = dict(conf_thr=a.conf, iou_thr=a.nms_iou, img_size=a.img_size)
+    if a.img_size is None:
+        kw["img_size"] = 256 if a.detector == "yolov7" else 640
     if a.detector == "yolov7":
         detector = build_detector("yolov7", a.weights, repo=a.yolov7_repo, device=a.device, **kw)
+    elif a.detector == "yolov12":
+        detector = build_detector("yolov12", a.weights, classes=a.classes, grayscale=a.grayscale, **kw)
     elif a.detector == "ultralytics":
-        detector = build_detector("ultralytics", a.weights, **kw)
+        detector = build_detector("ultralytics", a.weights, classes=a.classes, **kw)
     else:
         detector = build_detector("mot", a.weights)
     reid = None if a.reid == "none" else build_reid(a.reid_weights, a.device, a.reid)

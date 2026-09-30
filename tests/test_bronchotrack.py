@@ -408,3 +408,43 @@ def test_slicer_surface_model_and_outputs(tmp_path):
     assert nodes["coordinate_system"] == "RAS" and len(nodes["nodes"]) == len(a)
     write_slicer_checks(a, str(tmp_path / "c.vtk"), str(tmp_path / "l.mrk.json"))
     assert "SPACE=RAS" in open(tmp_path / "c.vtk", encoding="latin-1").read(200)
+
+
+# ----------------------------------------------------------------- detectors / YOLO tooling
+def test_build_detector_kinds_and_family(tmp_path):
+    from bronchotrack import detector as D
+    with pytest.raises(ValueError):
+        D.build_detector("nope", "x")
+    p = tmp_path / "d.txt"
+    p.write_text("1,-1,10,10,20,20,0.9\n")
+    assert isinstance(D.build_detector("mot", str(p)), AnnotationDetector)
+    assert issubclass(D.YOLOv12Detector, D.UltralyticsDetector)
+
+
+def test_detector_ap_metric():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    from compare_detectors import average_precision, match
+    gt = np.array([[0, 0, 10, 10], [20, 20, 30, 30]], float)
+    pred = np.array([[0, 0, 10, 10], [20, 20, 30, 31], [50, 50, 60, 60]], float)
+    s = np.array([0.9, 0.8, 0.95])
+    tp = match(pred, s, gt, 0.5)
+    assert tp.tolist() == [True, True, False]
+    ap = average_precision(tp, s, 2)                         # a high-scored FP first -> AP < 1
+    assert 0.6 < ap < 0.7
+    assert average_precision(np.array([True, True]), np.array([0.9, 0.8]), 2) == pytest.approx(1.0)
+
+
+def test_export_yolo_dataset(tmp_path):
+    run = tmp_path / "bench" / "run01"
+    (run / "frames").mkdir(parents=True)
+    for k in (1, 2, 3):
+        cv2.imwrite(str(run / "frames" / f"{k:05d}.png"), np.zeros((100, 200, 3), np.uint8))
+    (run / "gt_boxes.csv").write_text("frame,id,x1,y1,x2,y2,label,level\n1,1,10,20,50,60,0,0\n3,1,0,0,200,100,0,0\n")
+    import subprocess
+    out = tmp_path / "ds"
+    subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "..", "tools", "export_yolo_dataset.py"),
+                    "--bench", str(tmp_path / "bench"), "--every", "2", "--out", str(out)], check=True)
+    lab = np.loadtxt(out / "labels" / "train" / "run01_00001.txt", ndmin=2)
+    assert lab.shape == (1, 5) and lab[0, 1:] == pytest.approx([0.15, 0.4, 0.2, 0.4])
+    assert not (out / "labels" / "train" / "run01_00002.txt").exists()
+    assert "names: ['lumen']" in (out / "data.yaml").read_text()

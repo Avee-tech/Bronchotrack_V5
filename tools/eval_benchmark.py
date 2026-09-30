@@ -30,6 +30,7 @@ from bronchotrack.metrics import label_ap, localization_metrics, tracking_metric
 from bronchotrack.pipeline import BronchoTrack, BronchoTrackConfig  # noqa: E402
 from bronchotrack.reid import build_reid  # noqa: E402
 
+DETECTOR_KIND = "yolov12"  # "yolov7" (paper) or "ultralytics" for other checkpoints (--detector)
 SPEED_MM_PER_FRAME = 0.5  # the renders advance 0.5 mm per frame (make_vb_benchmark --speed)
 
 VARIANTS = {
@@ -45,11 +46,16 @@ VARIANTS = {
 }
 
 
-def cache_detections(run_dir, weights, conf=0.1, iou=0.6, imgsz=640):
-    out = os.path.join(run_dir, "dets.txt")
+def cache_detections(run_dir, weights, conf=0.1, iou=0.6, imgsz=640, repo=None):
+    """Detections per run, cached per detector + weights (dets_<kind>_<weights name>.txt)."""
+    stem = os.path.splitext(os.path.basename(weights))[0]
+    parent = os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(weights))))  # runs/<name>/weights/
+    tag = f"{parent}_{stem}" if stem in ("best", "last") and parent else stem
+    out = os.path.join(run_dir, f"dets_{DETECTOR_KIND}_{tag}_{imgsz}.txt")
     if os.path.exists(out):
         return out
-    det = build_detector("ultralytics", weights, conf_thr=conf, iou_thr=iou, img_size=imgsz)
+    extra = {"repo": repo} if DETECTOR_KIND == "yolov7" and repo else {}
+    det = build_detector(DETECTOR_KIND, weights, conf_thr=conf, iou_thr=iou, img_size=imgsz, **extra)
     with open(out, "w") as f:
         for p in sorted(glob.glob(os.path.join(run_dir, "frames", "*.png"))):
             k = int(os.path.basename(p)[:-4])
@@ -152,17 +158,24 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--oracle-dets", action="store_true", help="use jittered GT boxes instead of the detector")
     ap.add_argument("--speed", type=float, default=0.5, help="average scope speed for the motion model, mm/frame")
+    ap.add_argument("--detector", default="yolov12", choices=["yolov12", "yolov7", "ultralytics"])
+    ap.add_argument("--yolov7-repo", default=os.environ.get("YOLOV7_REPO", "yolov7"))
+    ap.add_argument("--img-size", type=int, default=640, help="detector input size")
+    ap.add_argument("--runs", nargs="*", help="evaluate only these runs (e.g. the detector's held-out run03 run06)")
     a = ap.parse_args()
-    global SPEED_MM_PER_FRAME
-    SPEED_MM_PER_FRAME = a.speed
+    global SPEED_MM_PER_FRAME, DETECTOR_KIND
+    SPEED_MM_PER_FRAME, DETECTOR_KIND = a.speed, a.detector
     graph = a.graph or os.path.join(os.path.dirname(__file__), "..", "results", "ModelV3", "airway_v3.json")
     g = AirwayGraph.from_json(graph)
     runs = sorted(d for d in glob.glob(os.path.join(a.bench, "run*")) if os.path.isdir(d))
+    if a.runs:
+        runs = [d for d in runs if os.path.basename(d) in a.runs]
     os.makedirs(a.out, exist_ok=True)
     res = {v: {} for v in a.variants}
     for rd in runs:
         name = os.path.basename(rd)
-        dets = oracle_detections(rd) if a.oracle_dets else cache_detections(rd, a.weights)
+        dets = oracle_detections(rd) if a.oracle_dets else cache_detections(rd, a.weights, imgsz=a.img_size,
+                                                                        repo=a.yolov7_repo)
         gtb, gtl, gloc = load_gt(rd)
         for v in a.variants:
             pr, prl, loc, probs, fps = run_variant(rd, g, dets, VARIANTS[v], a.reid, a.high_thresh)
