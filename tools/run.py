@@ -86,7 +86,7 @@ def main():
     ap.add_argument("--geo-weight", type=float, default=1.0, help="weight of the ratio cue vs the association")
     ap.add_argument("--motion", action="store_true",
                     help="version 3: speed-constrained motion model (use with --geometry)")
-    ap.add_argument("--speed", type=float, default=7.0, help="average scope speed along the airway, mm/s")
+    ap.add_argument("--speed", type=float, default=3.5, help="average scope speed along the airway, mm/s")
     ap.add_argument("--speed-max-factor", type=float, default=2.0, help="max speed = factor x average")
     ap.add_argument("--fps", type=float, default=None, help="overlay fps (default: source fps or 15)")
     a = ap.parse_args()

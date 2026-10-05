@@ -42,7 +42,7 @@ from .airway_graph import AirwayGraph
 
 @dataclass
 class MotionConfig:
-    speed: float = 7.0           # average speed of the scope tip along the airway, mm/s (ModelV3 videos: 6-8)
+    speed: float = 3.5           # average speed of the scope tip along the airway, mm/s
     fps: float = 30.0            # frames per second of the video
     max_factor: float = 2.0      # the tip never moves faster than max_factor x average speed
     tau: float = 1.0             # s over which the velocity changes by about one average speed
