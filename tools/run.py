@@ -74,7 +74,7 @@ def main():
     ap.add_argument("--init-loc", help="start at this branch instead of before the carina")
     ap.add_argument("--mirror", action="store_true", help="flip graph x (scope display convention)")
     ap.add_argument("--truncate", type=float, default=10.0, help="child truncation length (graph units)")
-    ap.add_argument("--high-thresh", type=float, default=0.5)
+    ap.add_argument("--high-thresh", type=float, default=0.3, help="high/low detection confidence split (0.3 suits best.pt)")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--out-dir", default="out")
     ap.add_argument("--show", action="store_true")
