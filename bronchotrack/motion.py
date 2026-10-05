@@ -23,8 +23,10 @@ belief over the tip position (branch, arc length s) with a particle filter:
   eps covers frames where the evidence is wrong. The two adjacency terms cover the
   Eq. (9) one-generation ambiguity at a bifurcation *and* let the belief move: a
   child's evidence pulls particles to the end of the parent, where they can cross.
-* **Output.** The branch holding the largest posterior mass, with that mass as its
-  probability. The fused labels are scored with the probability that their Eq. (9)
+* **Output.** The branch with the largest combined probability
+      P(b) = weight x P_motion(b) + (1 - weight) x share(b),
+  i.e. the particle filter's branch mass blended with this frame's evidence (weight = 1:
+  the particle filter alone (default); 0.5: half its influence). The fused labels are scored with the probability that their Eq. (9)
   location is *reachable within the next ``horizon`` seconds* (one-generation moves
   near a bifurcation are allowed, instant multi-generation jumps are not), and the
   location is fed back to the association (label gating, recovery).
@@ -49,13 +51,19 @@ class MotionConfig:
     n_particles: int = 2000
     eps: float = 0.05            # likelihood floor (evidence can be wrong)
     adjacent: float = 0.3        # likelihood share for parent/children of a voted branch
-    prior_weight: float = 1.0    # weight of log P_reach(location) in the fusion hypotheses
+    weight: float = 1.0          # influence of the motion model: 1 = full (location = particle filter),
+                                 # 0.5 = half (reach prior and reported location split 50/50 with the evidence)
+    prior_weight: Optional[float] = None  # weight of log P_reach in the fusion hypotheses (default: weight)
     horizon: float = 1.0         # s: fusion prior = branches reachable within this time
     view_range: float = 20.0     # mm: evidence for a child also supports the last ~20 mm of its parent
     init_range: float = 40.0     # mm: when the carina is first recognised the tip is within this of it
     reach_floor: float = 0.02    # prior of a branch the scope cannot reach in time
     use_label_age: bool = True   # association confidence from how long a lumen kept its label
     seed: int = 0
+
+    @property
+    def fusion_prior_weight(self) -> float:
+        return self.weight if self.prior_weight is None else self.prior_weight
 
     @property
     def step_max(self) -> float:
@@ -112,6 +120,20 @@ class MotionModel:
     def branch_probs(self) -> Dict[str, float]:
         m = np.bincount(self.b, weights=self.w, minlength=len(self.labels))
         return {self.labels[i]: float(v) for i, v in enumerate(m) if v > 0}
+
+    def combined(self, votes: Dict[str, float]):
+        """Location from the motion belief blended with this frame's evidence (``weight``)."""
+        w = float(np.clip(self.cfg.weight, 0.0, 1.0))
+        bp = self.branch_probs()
+        tot = sum(v for k, v in votes.items() if k in self.idx)
+        if tot <= 0 or w >= 1.0:
+            return self.estimate()
+        p = {k: w * v for k, v in bp.items()}
+        for k, v in votes.items():
+            if k in self.idx:
+                p[k] = p.get(k, 0.0) + (1 - w) * v / tot
+        lab = max(p, key=p.get)
+        return lab, float(p[lab])
 
     def estimate(self):
         """(branch with the largest mass, its probability)."""

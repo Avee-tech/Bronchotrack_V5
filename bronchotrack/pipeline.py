@@ -160,7 +160,7 @@ class BronchoTrack:
         if self.fusion is not None and self.assoc.initialized:
             t0 = time.perf_counter()
             fres = self.fusion.fuse(S, self.assoc.loc, self.assoc.roll, loc_prior=prior,
-                                    prior_weight=self.cfg.motion.prior_weight)
+                                    prior_weight=self.cfg.motion.fusion_prior_weight)
             if self.cfg.fusion.feedback:
                 apply_fusion(S, fres)
                 if fres.location is not None:
@@ -175,7 +175,7 @@ class BronchoTrack:
             else:
                 votes = {self.M.root: 1.0}
             self.motion.update(votes)
-            mloc, mprob = self.motion.estimate()
+            mloc, mprob = self.motion.combined(votes)
             self.assoc.loc = mloc                  # feedback: gating / recovery next frame
             rt["motion"] = 1e3 * (time.perf_counter() - t0)
 

@@ -87,6 +87,10 @@ def main():
     ap.add_argument("--motion", action="store_true",
                     help="version 3: speed-constrained motion model (use with --geometry)")
     ap.add_argument("--speed", type=float, default=3.5, help="average scope speed along the airway, mm/s")
+    ap.add_argument("--motion-weight", type=float, default=1.0,
+                    help="influence of the motion model, 0-1 (1 = full, 0.5 = half)")
+    ap.add_argument("--motion-prior-weight", type=float, default=None,
+                    help="weight of the motion model's reachability prior in the fusion (default: --motion-weight)")
     ap.add_argument("--speed-max-factor", type=float, default=2.0, help="max speed = factor x average")
     ap.add_argument("--fps", type=float, default=None, help="overlay fps (default: source fps or 15)")
     a = ap.parse_args()
@@ -110,7 +114,8 @@ def main():
     cfg.use_geometry = a.geometry
     cfg.fusion.sigma, cfg.fusion.w_geo = a.geo_sigma, a.geo_weight
     cfg.use_motion = a.motion
-    cfg.motion.speed, cfg.motion.max_factor = a.speed, a.speed_max_factor
+    cfg.motion.speed, cfg.motion.max_factor, cfg.motion.weight = a.speed, a.speed_max_factor, a.motion_weight
+    cfg.motion.prior_weight = a.motion_prior_weight
     vfps = cv2.VideoCapture(a.video).get(cv2.CAP_PROP_FPS) if os.path.isfile(a.video) else 0
     cfg.motion.fps = a.fps or vfps or 30.0
     cfg.export_particles = 300 if (a.map and a.motion) else 0
