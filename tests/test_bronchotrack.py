@@ -448,3 +448,54 @@ def test_export_yolo_dataset(tmp_path):
     assert lab.shape == (1, 5) and lab[0, 1:] == pytest.approx([0.15, 0.4, 0.2, 0.4])
     assert not (out / "labels" / "train" / "run01_00002.txt").exists()
     assert "names: ['lumen']" in (out / "data.yaml").read_text()
+
+
+# ----------------------------------------------------------------- version 4: learned speeds
+def _v3_graph():
+    return AirwayGraph.from_json(os.path.join(os.path.dirname(__file__), "..", "results", "ModelV3", "airway_v3.json"))
+
+
+def test_extract_traversals_merges_flicker():
+    from bronchotrack.speed_model import extract_traversals
+    g = _v3_graph()
+    L = g["01"].length
+    n = int(round(L / 5.0 * 30))                   # 5 mm/s at 30 fps
+    locs = ["0"] * 40 + ["01"] * (n // 2) + ["0"] * 3 + ["01"] * (n - n // 2 - 3) + ["010"] * 40
+    t = extract_traversals(g, locs, 30.0)
+    assert len(t) == 1 and t[0].branch == "01" and not t[0].retract
+    assert t[0].speed == pytest.approx(L / ((n) / 30.0), rel=0.05)
+    back = extract_traversals(g, ["010"] * 30 + ["01"] * n + ["0"] * 30, 30.0)
+    assert len(back) == 1 and back[0].retract
+
+
+def test_speed_model_recovers_simulated_doctor(tmp_path):
+    from bronchotrack.speed_model import SpeedModel, SpeedProfiles, branch_features
+    g = _v3_graph()
+    true = np.array([np.log(8.0), 0.6, -0.12, -0.5, -0.15, 0.2])
+    rng = np.random.default_rng(0)
+    labs = [l for l in g.labels() if g.parent(l) is not None]
+    X = np.stack([branch_features(g, str(rng.choice(labs)), bool(rng.random() < 0.3)) for _ in range(300)])
+    y = X @ true + rng.normal(0, 0.15, len(X))
+    prof = SpeedProfiles(str(tmp_path), default_speed=3.5)
+    m = prof.learn("dr_a", X, y, np.ones(len(y)))
+    for lab in labs:
+        x = branch_features(g, lab)
+        assert m.speed(x) == pytest.approx(np.exp(x @ true), rel=0.12)
+    assert (tmp_path / "dr_a.json").exists() and (tmp_path / "population.json").exists()
+    new = prof.get("dr_b")                         # a new doctor starts from the population
+    assert new.mean == pytest.approx(prof.population().mean) and np.all(np.diag(new.cov) > np.diag(m.cov))
+    assert SpeedModel.load(str(tmp_path / "dr_a.json")).n_runs == 1
+
+
+def test_motion_model_branch_speeds():
+    from bronchotrack.motion import MotionConfig, MotionModel
+    g = _v3_graph()
+    m = MotionModel(g, MotionConfig(speed=5.0, fps=30.0, n_particles=400, seed=0), start="01")
+    m.v[:] = 1.0                                   # all particles advancing at the expected speed
+    m.s[:] = 1.0
+    m.set_speeds({"01": 10.0})
+    m.predict()
+    assert np.median(m.s) == pytest.approx(1.0 + 10.0 / 30.0, abs=0.05)
+    from bronchotrack.synthetic import interpolate_path
+    p = interpolate_path(g, [("01", 0.0), ("01", 10.0)], lambda b, back: 0.5)
+    assert len(p) == 21

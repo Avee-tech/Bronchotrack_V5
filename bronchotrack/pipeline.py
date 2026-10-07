@@ -33,6 +33,7 @@ class BronchoTrackConfig:
     use_motion: bool = False        # version 3: speed-constrained motion model of the scope
     motion: MotionConfig = field(default_factory=MotionConfig)
     export_particles: int = 0       # particles to return per frame for drawing (0 = none)
+    speed_learn_online: bool = False  # version 4: update the speed profile during the run
 
 
 @dataclass
@@ -66,7 +67,7 @@ class FrameResult:
 
 class BronchoTrack:
     def __init__(self, detector, graph: Optional[AirwayGraph], reid=None,
-                 cfg: Optional[BronchoTrackConfig] = None, matcher=None):
+                 cfg: Optional[BronchoTrackConfig] = None, matcher=None, speed_model=None):
         cfg = cfg if cfg is not None else BronchoTrackConfig()
         self.detector = detector
         self.reid = reid
@@ -84,6 +85,14 @@ class BronchoTrack:
         self.motion = MotionModel(graph, cfg.motion) if (cfg.use_motion and self.assoc is not None) else None
         if self.motion is not None and self.fusion is not None and cfg.motion.use_label_age:
             self.fusion.cfg.use_label_age = True
+        # version 4: branch-dependent speeds from a learned (per-doctor) speed profile
+        self.speed_model = speed_model
+        self.speed_learner = None
+        if self.motion is not None and speed_model is not None:
+            self.motion.set_speeds(speed_model.branch_speeds(graph), speed_model.branch_speeds(graph, retract=True))
+            if cfg.speed_learn_online:
+                from .speed_model import OnlineSpeedLearner
+                self.speed_learner = OnlineSpeedLearner(graph, speed_model, cfg.motion.fps)
         self._label_hist: Dict[int, tuple] = {}  # track id -> (label, frame it was assigned)
         self.t = -1
 
@@ -208,6 +217,10 @@ class BronchoTrack:
             r.loc_prob, r.ratio_err_assoc, r.ratio_err_fused = fres.loc_prob, fres.ratio_err_assoc, fres.ratio_err_fused
         if mloc is not None:
             r.loc_prob = mprob
+            if self.speed_learner is not None:
+                upd = self.speed_learner.step(t, mloc, mprob)
+                if upd is not None:
+                    self.motion.set_speeds(*upd)
             if self.cfg.export_particles:
                 r.particles = self.motion.positions(self.cfg.export_particles)
         return r

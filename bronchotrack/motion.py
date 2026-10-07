@@ -82,6 +82,8 @@ class MotionModel:
         self.parent = np.array([self.idx[graph.parent(l)] if graph.parent(l) is not None else -1
                                 for l in self.labels])
         self.children = [[self.idx[c] for c in graph.children(l)] for l in self.labels]
+        self.spd_fwd = np.full(len(self.labels), float(self.cfg.speed))  # mm/s per branch, advancing
+        self.spd_back = self.spd_fwd.copy()                                 # ... and retracting
         self._geo = {}
         for l in self.labels:  # arc-length parametrised centre lines for drawing
             b = graph[l]
@@ -99,12 +101,21 @@ class MotionModel:
         lo = 0.0 if last_mm is None else max(0.0, self.L[b] - last_mm)
         self.b = np.full(n, b, int)
         self.s = self.rng.uniform(lo, self.L[b], n)
-        self.v = self.rng.uniform(-self.cfg.step_max, self.cfg.step_max, n)  # mm per frame
+        # velocity in units of the branch's expected speed (1 = average doctor speed there)
+        self.v = self.rng.uniform(-self.cfg.max_factor, self.cfg.max_factor, n)
         self.w = np.full(n, 1.0 / n)
+
+    def set_speeds(self, advancing: Dict[str, float], retracting: Optional[Dict[str, float]] = None):
+        """Per-branch expected speeds in mm/s (e.g. from a learned speed profile)."""
+        retracting = advancing if retracting is None else retracting
+        for l, i in self.idx.items():
+            self.spd_fwd[i] = float(advancing.get(l, self.spd_fwd[i]))
+            self.spd_back[i] = float(retracting.get(l, self.spd_back[i]))
 
     def reach_probs(self, horizon_s: Optional[float] = None) -> Dict[str, float]:
         """Probability that the tip can be in each branch within ``horizon_s`` seconds."""
-        r = self.cfg.step_max * self.cfg.fps * (self.cfg.horizon if horizon_s is None else horizon_s)
+        h = self.cfg.horizon if horizon_s is None else horizon_s
+        r = self.cfg.max_factor * np.maximum(self.spd_fwd, self.spd_back)[self.b] * h  # per particle, mm
         nb = len(self.labels)
         own = np.bincount(self.b, weights=self.w, minlength=nb)
         near_end = np.bincount(self.b, weights=self.w * ((self.L[self.b] - self.s) <= r), minlength=nb)
@@ -144,9 +155,10 @@ class MotionModel:
     # ---------------------------------------------------------------- predict
     def predict(self):
         c = self.cfg
-        sd = (c.speed / c.fps) * np.sqrt(1.0 / (c.fps * c.tau))  # velocity change per frame
-        self.v = np.clip(self.v + self.rng.normal(0, sd, len(self.v)), -c.step_max, c.step_max)
-        self.s = self.s + self.v
+        sd = np.sqrt(1.0 / (c.fps * c.tau))  # velocity change per frame, in units of the local speed
+        self.v = np.clip(self.v + self.rng.normal(0, sd, len(self.v)), -c.max_factor, c.max_factor)
+        spd = np.where(self.v >= 0, self.spd_fwd[self.b], self.spd_back[self.b])
+        self.s = self.s + self.v * spd / c.fps
         for _ in range(8):  # a step is short; a few crossings at most
             over = np.where(self.s > self.L[self.b])[0]
             under = np.where(self.s < 0)[0]

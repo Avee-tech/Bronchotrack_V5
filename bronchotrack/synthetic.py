@@ -111,24 +111,28 @@ def _pos(g: AirwayGraph, b: str, s: float) -> np.ndarray:
     return g[b].point_at(s)
 
 
-def interpolate_path(g: AirwayGraph, way: List[Tuple[str, float]], speed: float = 1.2
+def interpolate_path(g: AirwayGraph, way: List[Tuple[str, float]], speed=1.2
                      ) -> List[Tuple[str, float]]:
-    """Dense (branch, s) samples moving at ``speed`` mm/frame along the tree."""
+    """Dense (branch, s) samples moving at ``speed`` mm/frame along the tree.
+
+    ``speed`` is a number, or a callable ``speed(branch, retracting) -> mm/frame`` for a
+    branch-dependent speed (called once per piece of path inside a branch)."""
+    sp = speed if callable(speed) else (lambda b, back: speed)
     out = []
+
+    def piece(b, s_from, s_to):
+        n = max(1, int(abs(s_to - s_from) / max(sp(b, s_to < s_from), 1e-3)))
+        return [(b, s_from + (s_to - s_from) * k / n) for k in range(n)]
+
     for (b0, s0), (b1, s1) in zip(way[:-1], way[1:]):
         if b0 == b1:
-            n = max(1, int(abs(s1 - s0) / speed))
-            out += [(b0, s0 + (s1 - s0) * k / n) for k in range(n)]
+            out += piece(b0, s0, s1)
         elif g.parent(b1) == b0:  # forward: finish b0, enter b1
-            n = max(1, int(abs(g[b0].length - s0) / speed))
-            out += [(b0, s0 + (g[b0].length - s0) * k / n) for k in range(n)]
-            n = max(1, int(s1 / speed))
-            out += [(b1, s1 * k / n) for k in range(n)]
+            out += piece(b0, s0, g[b0].length)
+            out += piece(b1, 0.0, s1)
         elif g.parent(b0) == b1:  # retract: back to b0 start, into b1 end
-            n = max(1, int(s0 / speed))
-            out += [(b0, s0 - s0 * k / n) for k in range(n)]
-            n = max(1, int(abs(g[b1].length - s1) / speed))
-            out += [(b1, g[b1].length - (g[b1].length - s1) * k / n) for k in range(n)]
+            out += piece(b0, s0, 0.0)
+            out += piece(b1, g[b1].length, s1)
         else:
             raise ValueError(f"non-adjacent waypoints {b0}->{b1}")
     out.append(way[-1])

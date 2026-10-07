@@ -91,6 +91,13 @@ def main():
                     help="influence of the motion model, 0-1 (1 = full, 0.5 = half)")
     ap.add_argument("--motion-prior-weight", type=float, default=None,
                     help="weight of the motion model's reachability prior in the fusion (default: --motion-weight)")
+    ap.add_argument("--operator", help="version 4: doctor's name; loads their learned speed profile "
+                                        "(branch-dependent speeds) and updates it after the run")
+    ap.add_argument("--adaptive-speed", action="store_true",
+                    help="version 4 without a doctor profile: use the population speed profile")
+    ap.add_argument("--profile-dir", default="speed_profiles", help="where speed profiles are stored")
+    ap.add_argument("--learn", default="after", choices=["after", "online", "off"],
+                    help="update the speed profile after the run (default), also during it, or not at all")
     ap.add_argument("--speed-max-factor", type=float, default=2.0, help="max speed = factor x average")
     ap.add_argument("--fps", type=float, default=None, help="overlay fps (default: source fps or 15)")
     a = ap.parse_args()
@@ -128,7 +135,14 @@ def main():
     if a.lc:
         from bronchotrack.loop_closure import build_matcher
         matcher = build_matcher(a.lc_matcher, a.device)
-    bt = BronchoTrack(detector, graph, reid, cfg, matcher)
+    profiles, speed_model = None, None
+    if a.motion and graph is not None and (a.operator or a.adaptive_speed):
+        from bronchotrack.speed_model import SpeedProfiles
+        profiles = SpeedProfiles(a.profile_dir, default_speed=a.speed)
+        speed_model = profiles.get(a.operator)
+        print(speed_model.describe())
+        cfg.speed_learn_online = a.learn == "online"
+    bt = BronchoTrack(detector, graph, reid, cfg, matcher, speed_model=speed_model)
     if a.init_loc and bt.assoc is not None:
         bt.assoc.force_init(a.init_loc, np.radians(a.init_roll))
 
@@ -145,6 +159,7 @@ def main():
     writer = None
     t0 = time.perf_counter()
     n = 0
+    run_locs, run_probs = [], []
     for fr in frames_from(a.video):
         ts = time.perf_counter()
         r = bt.process(fr)
@@ -160,6 +175,8 @@ def main():
                           "" if tr.prob is None else f"{tr.prob:.3f}",
                           (tr.assoc or ("", None))[0] or "", "" if tr.assoc is None else f"{tr.assoc[1]:.3f}",
                           (tr.ratio or ("", None))[0] or "", "" if tr.ratio is None else f"{tr.ratio[1]:.3f}"])
+        run_locs.append(r.location)
+        run_probs.append(r.loc_prob)
         fmt = lambda v: "" if v is None else f"{v:.3f}"  # noqa: E731
         loc.writerow([r.t + 1, r.location or "", f"{np.degrees(r.roll):.1f}", int(r.loop_closed), f"{ms:.1f}",
                       fmt(r.loc_prob), r.assoc_location or "", fmt(r.ratio_err_assoc), fmt(r.ratio_err_fused),
@@ -179,6 +196,16 @@ def main():
         writer.release()
     dt = time.perf_counter() - t0
     print(f"{n} frames in {dt:.1f}s -> {n / max(dt, 1e-9):.1f} FPS; results in {a.out_dir}/")
+    if profiles is not None and a.learn != "off":
+        from bronchotrack.speed_model import extract_traversals, traversal_data
+        trav = (bt.speed_learner.traversals if bt.speed_learner is not None
+                else extract_traversals(graph, run_locs, cfg.motion.fps, run_probs))
+        if trav:
+            m = profiles.learn(a.operator, *traversal_data(graph, trav))
+            print(f"learned from {len(trav)} branch traversals:")
+            print(m.describe())
+        else:
+            print("no complete branch traversal in this run: speed profile unchanged")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+run01: targets ['01000', '0000'], 2277 frames
+run02: targets ['0111', '0101'], 1275 frames
+run03: targets ['0100', '0001'], 1490 frames
+run04: targets ['01000', '0010'], 2219 frames
+run05: targets ['0000', '0100'], 1610 frames
+run06: targets ['0010', '01000'], 2113 frames
+run07: targets ['0101', '01000'], 1145 frames
+run08: targets ['0010', '0111'], 1852 frames

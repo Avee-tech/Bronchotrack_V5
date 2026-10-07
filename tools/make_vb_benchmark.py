@@ -204,7 +204,7 @@ def pick_targets(g, rng, min_gen=3, min_radius=1.4):
 
 
 def run(mesh, graph_path, out, n_runs=6, seed=0, size=512, fov=60.0, speed=0.5, roll_walk=0.4,
-        lookahead=16, depth_frac=0.6, first=0):
+        lookahead=16, depth_frac=0.6, first=0, speed_profile=None, speed_noise=0.15, fps=30.0):
     g = AirwayGraph.from_json(graph_path)
     gs = smoothed_copy(g)
     vb = VBRenderer(mesh, gs, size, fov)
@@ -213,7 +213,15 @@ def run(mesh, graph_path, out, n_runs=6, seed=0, size=512, fov=60.0, speed=0.5, 
     for r in range(first, first + n_runs):
         rng = np.random.default_rng(seed + 1000 * r)
         targets = pick_targets(g, rng)
-        path = interpolate_path(gs, plan_path(gs, targets, depth_frac), speed)
+        sp = speed
+        if speed_profile:  # a simulated doctor: branch-dependent speed + traversal-to-traversal variation
+            from bronchotrack.speed_model import SpeedModel, branch_features
+            doc = SpeedModel.load(speed_profile)
+
+            def doctor_speed(b, back, doc=doc, rng=rng):
+                return doc.speed(branch_features(g, b, back)) * float(np.exp(rng.normal(0, speed_noise))) / fps
+            sp = doctor_speed
+        path = interpolate_path(gs, plan_path(gs, targets, depth_frac), sp)
         d = os.path.join(out, f"run{r + 1:02d}")
         os.makedirs(os.path.join(d, "frames"), exist_ok=True)
         tr = gs["0"]
@@ -267,6 +275,11 @@ if __name__ == "__main__":
     ap.add_argument("--size", type=int, default=512)
     ap.add_argument("--fov", type=float, default=60.0)
     ap.add_argument("--speed", type=float, default=0.5, help="mm per frame")
+    ap.add_argument("--speed-profile", help="speed profile JSON of a simulated doctor (branch-dependent speed, "
+                                             "bronchotrack/speed_model.py); overrides --speed")
+    ap.add_argument("--speed-noise", type=float, default=0.15, help="sd of ln(speed) between traversals")
+    ap.add_argument("--fps", type=float, default=30.0)
     ap.add_argument("--first", type=int, default=0, help="index of the first run (to generate runs in parallel)")
     a = ap.parse_args()
-    run(a.mesh, a.graph, a.out, a.runs, a.seed, a.size, a.fov, a.speed, first=a.first)
+    run(a.mesh, a.graph, a.out, a.runs, a.seed, a.size, a.fov, a.speed, first=a.first,
+        speed_profile=a.speed_profile, speed_noise=a.speed_noise, fps=a.fps)
