@@ -68,6 +68,14 @@ def average_precision(tp, scores, n_gt):
     return ap / 101
 
 
+class _Gray:
+    def __init__(self, det):
+        self.det = det
+
+    def __call__(self, img):
+        return self.det(cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR))
+
+
 def load_items(root, split):
     items = []
     for im in sorted(glob.glob(os.path.join(root, "images", split, "*.jpg")) +
@@ -116,7 +124,7 @@ def main():
     ap.add_argument("--data", required=True, help="YOLO dataset root (images/<split>, labels/<split>)")
     ap.add_argument("--split", default="val")
     ap.add_argument("--det", nargs=3, action="append", metavar=("KIND", "WEIGHTS", "IMGSZ"), required=True,
-                    help="yolov12 / yolov7 / ultralytics, weights, input size; repeatable")
+                    help="yolov12 / yolov7 / ultralytics (add :gray for grey frames), weights, input size; repeatable")
     ap.add_argument("--name", action="append", help="display name per --det (default: kind)")
     ap.add_argument("--yolov7-repo", default=os.environ.get("YOLOV7_REPO", "yolov7"))
     ap.add_argument("--conf", type=float, default=0.25, help="operating confidence for P/R/F1")
@@ -128,8 +136,12 @@ def main():
     res = {}
     for i, (kind, w, sz) in enumerate(a.det):
         name = a.name[i] if a.name and i < len(a.name) else kind
+        gray = kind.endswith(":gray")  # e.g. "yolov12:gray": the same weights on grey frames
+        kind = kind.split(":")[0]
         extra = {"repo": a.yolov7_repo} if kind == "yolov7" else {}
         det = build_detector(kind, w, img_size=int(sz), conf_thr=0.001, iou_thr=0.6, device=a.device, **extra)
+        if gray:
+            det = _Gray(det)
         res[name] = evaluate(det, items, a.conf)
         res[name].update(weights=w, imgsz=int(sz))
     cols = ["AP50", "AP75", "AP50_95", "P", "R", "F1", "R_iou30", "boxes_per_frame", "ms_per_frame"]

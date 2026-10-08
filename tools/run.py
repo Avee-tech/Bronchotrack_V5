@@ -33,6 +33,10 @@ from bronchotrack.pipeline import AirwayMap, BronchoTrack, BronchoTrackConfig, d
 from bronchotrack.reid import build_reid  # noqa: E402
 
 
+def to_gray(img):
+    return cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+
+
 def frames_from(src):
     if src.isdigit():
         cap = cv2.VideoCapture(int(src))
@@ -61,7 +65,8 @@ def main():
     ap.add_argument("--yolov7-repo", default=os.environ.get("YOLOV7_REPO", "yolov7"))
     ap.add_argument("--img-size", type=int, default=None, help="detector input size (yolov12: 640, yolov7: 256)")
     ap.add_argument("--classes", type=int, nargs="*", help="keep only these detector class ids")
-    ap.add_argument("--grayscale", action="store_true", help="grey frames for weights trained on grey images")
+    ap.add_argument("--grayscale", action="store_true",
+                    help="convert every frame to grey before processing (detector, Re-ID and overlay)")
     ap.add_argument("--conf", type=float, default=0.1, help="detection threshold (paper: 0.1)")
     ap.add_argument("--nms-iou", type=float, default=0.6, help="0.6 patient / 0.7 porcine")
     ap.add_argument("--reid", default="auto", choices=["auto", "resnet50", "hist", "none"])
@@ -161,6 +166,8 @@ def main():
     n = 0
     run_locs, run_probs = [], []
     for fr in frames_from(a.video):
+        if a.grayscale:
+            fr = to_gray(fr)
         ts = time.perf_counter()
         r = bt.process(fr)
         ms = 1e3 * (time.perf_counter() - ts)

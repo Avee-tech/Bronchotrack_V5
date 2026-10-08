@@ -31,6 +31,7 @@ from bronchotrack.pipeline import BronchoTrack, BronchoTrackConfig  # noqa: E402
 from bronchotrack.reid import build_reid  # noqa: E402
 
 DETECTOR_KIND = "yolov12"  # "yolov7" (paper) or "ultralytics" for other checkpoints (--detector)
+GRAY = False  # --grayscale: every frame converted to grey (detector, Re-ID)
 SPEED_MM_PER_FRAME = 0.5  # the renders advance 0.5 mm per frame (make_vb_benchmark --speed)
 
 VARIANTS = {
@@ -46,12 +47,19 @@ VARIANTS = {
 }
 
 
+def read_frame(p):
+    img = cv2.imread(p)
+    if GRAY:
+        img = cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+    return img
+
+
 def cache_detections(run_dir, weights, conf=0.1, iou=0.6, imgsz=640, repo=None):
     """Detections per run, cached per detector + weights (dets_<kind>_<weights name>.txt)."""
     stem = os.path.splitext(os.path.basename(weights))[0]
     parent = os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(weights))))  # runs/<name>/weights/
     tag = f"{parent}_{stem}" if stem in ("best", "last") and parent else stem
-    out = os.path.join(run_dir, f"dets_{DETECTOR_KIND}_{tag}_{imgsz}.txt")
+    out = os.path.join(run_dir, f"dets_{DETECTOR_KIND}_{tag}_{imgsz}{'_gray' if GRAY else ''}.txt")
     if os.path.exists(out):
         return out
     extra = {"repo": repo} if DETECTOR_KIND == "yolov7" and repo else {}
@@ -59,7 +67,7 @@ def cache_detections(run_dir, weights, conf=0.1, iou=0.6, imgsz=640, repo=None):
     with open(out, "w") as f:
         for p in sorted(glob.glob(os.path.join(run_dir, "frames", "*.png"))):
             k = int(os.path.basename(p)[:-4])
-            d = det(cv2.imread(p))
+            d = det(read_frame(p))
             for (x1, y1, x2, y2), s in zip(d.boxes, d.scores):
                 f.write(f"{k},-1,{x1:.1f},{y1:.1f},{x2 - x1:.1f},{y2 - y1:.1f},{s:.4f}\n")
     return out
@@ -132,7 +140,7 @@ def run_variant(run_dir, g, dets_path, v, reid_kind, high_thresh):
     t_tot = 0.0
     for p in frames:
         k = int(os.path.basename(p)[:-4])
-        img = cv2.imread(p)
+        img = read_frame(p)
         if hasattr(reid, "frame_index"):
             reid.frame_index = k - 1
         t0 = time.perf_counter()
@@ -161,10 +169,11 @@ def main():
     ap.add_argument("--detector", default="yolov12", choices=["yolov12", "yolov7", "ultralytics"])
     ap.add_argument("--yolov7-repo", default=os.environ.get("YOLOV7_REPO", "yolov7"))
     ap.add_argument("--img-size", type=int, default=640, help="detector input size")
+    ap.add_argument("--grayscale", action="store_true", help="convert every frame to grey")
     ap.add_argument("--runs", nargs="*", help="evaluate only these runs (e.g. the detector's held-out run03 run06)")
     a = ap.parse_args()
-    global SPEED_MM_PER_FRAME, DETECTOR_KIND
-    SPEED_MM_PER_FRAME, DETECTOR_KIND = a.speed, a.detector
+    global SPEED_MM_PER_FRAME, DETECTOR_KIND, GRAY
+    SPEED_MM_PER_FRAME, DETECTOR_KIND, GRAY = a.speed, a.detector, a.grayscale
     graph = a.graph or os.path.join(os.path.dirname(__file__), "..", "results", "ModelV3", "airway_v3.json")
     g = AirwayGraph.from_json(graph)
     runs = sorted(d for d in glob.glob(os.path.join(a.bench, "run*")) if os.path.isdir(d))
