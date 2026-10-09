@@ -76,6 +76,7 @@ class MotionModel:
         self.g = graph
         self.cfg = cfg if cfg is not None else MotionConfig()
         self.rng = np.random.default_rng(self.cfg.seed)
+        self._draw_rng = np.random.default_rng(self.cfg.seed + 1)  # drawing must not change the filter
         self.labels = list(graph.labels())
         self.idx = {l: i for i, l in enumerate(self.labels)}
         self.L = np.array([max(graph[l].length, 1e-3) for l in self.labels])
@@ -218,7 +219,7 @@ class MotionModel:
     def positions(self, k: Optional[int] = None) -> np.ndarray:
         """3-D positions (standard frame) of ``k`` particles (all if None)."""
         sel = np.arange(len(self.b)) if k is None or k >= len(self.b) else \
-            self.rng.choice(len(self.b), k, replace=False, p=self.w)
+            self._draw_rng.choice(len(self.b), k, replace=False, p=self.w)
         out = np.zeros((len(sel), 3))
         for bi in np.unique(self.b[sel]):
             m = self.b[sel] == bi

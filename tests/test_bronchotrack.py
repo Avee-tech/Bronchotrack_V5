@@ -499,3 +499,14 @@ def test_motion_model_branch_speeds():
     from bronchotrack.synthetic import interpolate_path
     p = interpolate_path(g, [("01", 0.0), ("01", 10.0)], lambda b, back: 0.5)
     assert len(p) == 21
+
+
+def test_drawing_particles_does_not_change_the_motion_model():
+    from bronchotrack.motion import MotionConfig, MotionModel
+    g = _v3_graph()
+    a, b = (MotionModel(g, MotionConfig(n_particles=300, seed=3)) for _ in range(2))
+    for k in range(20):
+        a.predict(); b.predict()
+        a.update({"0": 1.0}); b.update({"0": 1.0})
+        a.positions(50)                            # only a is drawn
+    assert np.array_equal(a.s, b.s) and np.array_equal(a.b, b.b)

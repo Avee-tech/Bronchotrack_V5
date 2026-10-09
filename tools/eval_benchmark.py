@@ -57,8 +57,9 @@ def read_frame(p):
 def cache_detections(run_dir, weights, conf=0.1, iou=0.6, imgsz=640, repo=None):
     """Detections per run, cached per detector + weights (dets_<kind>_<weights name>.txt)."""
     stem = os.path.splitext(os.path.basename(weights))[0]
-    parent = os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(weights))))  # runs/<name>/weights/
-    tag = f"{parent}_{stem}" if stem in ("best", "last") and parent else stem
+    wdir = os.path.dirname(os.path.abspath(weights))
+    run_name = os.path.basename(os.path.dirname(wdir)) if os.path.basename(wdir) == "weights" else ""
+    tag = f"{run_name}_{stem}" if stem in ("best", "last") and run_name else stem  # runs/<name>/weights/best.pt
     out = os.path.join(run_dir, f"dets_{DETECTOR_KIND}_{tag}_{imgsz}{'_gray' if GRAY else ''}.txt")
     if os.path.exists(out):
         return out
@@ -158,7 +159,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bench", required=True)
     ap.add_argument("--graph", default=None, help="default: the graph used to render (results/ModelV3/airway_v3.json)")
-    ap.add_argument("--weights", required=True)
+    ap.add_argument("--weights", help="detector weights (not needed with --oracle-dets or --dets-file)")
     ap.add_argument("--reid", default="hist", choices=["hist", "resnet50", "oracle"],
                     help="oracle = simulated trained Re-ID (embeddings cluster by GT lumen identity)")
     ap.add_argument("--high-thresh", type=float, default=0.3)
@@ -170,6 +171,8 @@ def main():
     ap.add_argument("--yolov7-repo", default=os.environ.get("YOLOV7_REPO", "yolov7"))
     ap.add_argument("--img-size", type=int, default=640, help="detector input size")
     ap.add_argument("--grayscale", action="store_true", help="convert every frame to grey")
+    ap.add_argument("--dets-file", help="use this detection file in each run folder (e.g. dets.txt shipped in "
+                                        "results/ModelV3/benchmark) instead of running the detector")
     ap.add_argument("--runs", nargs="*", help="evaluate only these runs (e.g. the detector's held-out run03 run06)")
     a = ap.parse_args()
     global SPEED_MM_PER_FRAME, DETECTOR_KIND, GRAY
@@ -183,7 +186,8 @@ def main():
     res = {v: {} for v in a.variants}
     for rd in runs:
         name = os.path.basename(rd)
-        dets = oracle_detections(rd) if a.oracle_dets else cache_detections(rd, a.weights, imgsz=a.img_size,
+        dets = oracle_detections(rd) if a.oracle_dets else os.path.join(rd, a.dets_file) if a.dets_file else \
+            cache_detections(rd, a.weights, imgsz=a.img_size,
                                                                         repo=a.yolov7_repo)
         gtb, gtl, gloc = load_gt(rd)
         for v in a.variants:
