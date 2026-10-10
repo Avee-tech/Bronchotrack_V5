@@ -1,7 +1,8 @@
 # BronchoTrack V5
 
 Branch-level bronchoscope localisation, re-implemented from Tian et al., *"BronchoTrack: Airway Lumen
-Tracking for Branch-Level Bronchoscopic Localization"* (IEEE TMI 2025). This version adds a YOLOv12
+Tracking for Branch-Level Bronchoscopic Localization"* (IEEE TMI 2025). This version adds a YOLOv11
+
 lumen detector and two new cues: ratio fusion and a motion model.
 
 ## Setup (Windows PowerShell)
