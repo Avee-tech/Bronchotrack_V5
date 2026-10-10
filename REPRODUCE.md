@@ -86,7 +86,8 @@ N(0.8, 0.1) clipped to [0.35, 0.99]; random seed 0 for every run (`eval_benchmar
 (embeddings clustered by true lumen identity, noise 0.3). Note: `tools/run.py --reid auto` (its
 default) uses ImageNet ResNet50 features; pass `--reid hist` to match the reported results.
 
-**Lumen detector (`best.pt`).** The checkpoint records: Ultralytics 8.4.117, **YOLO11s**
+**Lumen detector (`best.pt`).** The reported results use the checkpoint with MD5
+`482dd64f5b8998ba6de8ea3d03c37ebe` (check with `md5sum best.pt`). It records: Ultralytics 8.4.117, **YOLO11s**
 architecture (`train_args.model = yolo11s.pt`, run name `bronchotrack_yolov12`), 9.4 M parameters,
 one class `lumen`, 150 epochs (early-stopping patience 50), batch 4, input 640, seed 0, default
 Ultralytics augmentation (HSV 0.015/0.7/0.4, translate 0.1, scale 0.5, horizontal flip 0.5,
