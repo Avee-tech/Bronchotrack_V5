@@ -38,8 +38,8 @@ python tools/run.py --video ModelV3_1.mp4 --graph airway/airway.json --weights b
 
 ## Run
 
-**1. Build the airway graph.** Export the airway from 3D Slicer as one of:
-- a surface model (`.vtk` / `.stl`)
+**1. Build the airway graph.** Export the 3D airway model from 3D Slicer as one of:
+- a surface model (`.vtk` / `.stl`) # tested done on
 - a segmentation (`.seg.nrrd`)
 - an Extract Centerline model
 
@@ -55,7 +55,7 @@ If you already have a thesis-format `airway_graph.json`, import it instead:
 python tools\import_graph_json.py airway_graph.json --out airway\airway.json
 ```
 
-**2. Run on a video.** Use the YOLOv12 lumen detector (`best.pt`, one class `lumen`):
+**2. Run on a video.** Use the YOLOv11 lumen detector (`best.pt`, one class `lumen`):
 
 ```powershell
 python tools\run.py --video ModelV3_1.mp4 --graph airway\airway.json --weights best.pt `
