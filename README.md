@@ -58,8 +58,13 @@ python tools\import_graph_json.py airway_graph.json --out airway\airway.json
 **2. Run on a video.** Use the YOLOv11 lumen detector (`best.pt`, one class `lumen`):
 
 ```powershell
-python tools\run.py --video ModelV3_1.mp4 --graph airway\airway.json --weights best.pt `
-    --geometry --motion --map --device cpu --out-dir out\ModelV3_1
+python tools/run.py --video ~/"Path to video"/ModelV3_1.mp4
+        --graph airway/airway.json \
+        --weights ~/:path to best.pt"/best.pt
+        --reid hist --geometry --map \
+        --device cuda (if you dont have a gpu use: --device cpu)
+        --out-dir out/ModelV3_1
+        --lc
 ```
 
 The flags choose the version:
@@ -68,12 +73,10 @@ The flags choose the version:
 |---|---|
 | *(none)* | v1: original BronchoTrack |
 | `--geometry` | v2: v1 + ratio fusion |
-| `--geometry --motion` | v3: v2 + motion model (recommended) |
 
 Other options:
 - `--speed 7`: average scope speed in mm/s.
 - `--lc`: loop closure.
-- `--detector yolov7 --yolov7-repo <path>`: use a YOLOv7 checkpoint.
 
 **Outputs** in `--out-dir`:
 - `overlay.mp4`: boxes with labels and probabilities, and the airway map on the right.
@@ -92,7 +95,7 @@ Other options:
   - Each box shows three probabilities: association (A), ratio (R) and fused (F).
 - **v3: motion model.**
   - A particle filter follows the scope along the airway (branch, depth and speed), using the average insertion speed.
-  - Branches the scope cannot reach within about 1 s are suppressed, so the location no longer jumps several generations at once.
+  - Branches the scope cannot reach within about 1 s are suppressed, so the location no longer jumps several generations at once. This version is still a work in progress and is not expected to give any improvement.
 
 **Localisation accuracy** on the rendered ModelV3 benchmark (6 runs, 3591 frames):
 
