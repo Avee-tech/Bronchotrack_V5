@@ -5,6 +5,10 @@ Tracking for Branch-Level Bronchoscopic Localization"* (IEEE TMI 2025). This ver
 
 lumen detector and two new cues: ratio fusion and a motion model.
 
+## Training Data for yolov12
+google drive link
+https://drive.google.com/drive/folders/1UzM9AtwpJhUyOXu33e0GDReFpBy2QgYC?usp=drive_link
+
 ## Setup (Windows PowerShell)
 
 ```powershell
