@@ -61,6 +61,8 @@ def evaluate(seq_gt_boxes, seq_gt_loc, pred_dir, graph):
         fr = sorted(gl)
         L = localization_metrics([gl[f] for f in fr], [pl.get(f) for f in fr], graph)
         m["LocAcc"] = L["LocAcc"]
+        m["n_frames"] = len(fr)
+        m["n_correct"] = int(sum(gl[f] == pl.get(f) for f in fr))
         m["gen_error_mean"] = L.get("gen_error_mean")
         m["per_branch"] = L["per_branch"]
     return m
@@ -84,6 +86,10 @@ def main():
             (f"{m[k]:10.2f}" if isinstance(m.get(k), float) else str(m.get(k, "-")).rjust(10)) for k in keys))
     mean = {k: float(np.mean([r[k] for r in rows if r.get(k) is not None])) for k in keys if any(r.get(k) is not None for r in rows)}
     print("mean".ljust(24) + "".join(f"{mean.get(k, float('nan')):10.2f}" for k in keys))
+    nf = sum(r.get("n_frames", 0) for r in rows)
+    if nf:
+        mean["LocAcc_all_frames"] = 100.0 * sum(r.get("n_correct", 0) for r in rows) / nf
+        print(f"Loc Acc over all {nf} frames: {mean['LocAcc_all_frames']:.2f} %")
     if a.compare_dir:
         other = [evaluate(gb, gl, pd, g)["LocAcc"] for (gb, gl, _), pd in zip(a.seq, a.compare_dir)]
         res = compare_accuracy([r["LocAcc"] for r in rows], other)

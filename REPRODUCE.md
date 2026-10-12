@@ -138,6 +138,29 @@ Expected (Loc Acc over all frames):
 Per run, detector, v1: 52.5 / 45.4 / 69.1 / 12.7 / 14.7 / 24.2 %. Full tables:
 `results/ModelV3/benchmark/tables_v3_det.txt`, `tables_v3_oracle.txt`.
 
+**The same numbers through `tools/run.py`.** `eval_benchmark.py` runs the pipeline internally. To
+use the normal entry point instead, run `run.py` on each run's frames and score the outputs with
+`evaluate.py` (`--speed 15 --fps 30`: the renders advance 0.5 mm per frame at 30 fps):
+
+```bash
+for r in 1 2 3 4 5 6; do
+  python tools/run.py --video vb_bench/run0$r/frames --graph results/ModelV3/airway_v3.json \
+      --detector mot --weights vb_bench/run0$r/dets.txt --reid hist --geometry --motion \
+      --speed 15 --fps 30 --no-video --out-dir out_v3/run0$r          # v1: drop --geometry --motion; v2: drop --motion
+done
+python tools/evaluate.py --graph results/ModelV3/airway_v3.json \
+    $(for r in 1 2 3 4 5 6; do echo --seq vb_bench/run0$r/gt_boxes.csv vb_bench/run0$r/gt_loc.csv out_v3/run0$r; done)
+# -> per-run table and "Loc Acc over all 3591 frames: 36.48 %"
+```
+
+Use `--weights vb_bench/run0$r/dets_oracle.txt` (written by `eval_benchmark.py --oracle-dets`) for the
+ground-truth-box row; `--detector yolov12 --weights best.pt` runs the detector on the frames.
+
+**Ground truth check.** `gt_loc.csv` and `poses.csv` are written together by `make_vb_benchmark.py`
+from the same (branch, arc length) samples; `poses.csv`'s `branch` column equals `gt_loc.csv`.
+`tools/check_gt_from_poses.py` confirms this and also maps every camera position to the nearest
+centre-line point (agrees on 98.9 % of frames; the rest sit at a bifurcation).
+
 ## 4. Verification (done on the current code)
 
 - `make_vb_benchmark.py` re-render of run 1: `gt_loc.csv`, `gt_boxes.csv`, `poses.csv` identical,
@@ -145,7 +168,7 @@ Per run, detector, v1: 52.5 / 45.4 / 69.1 / 12.7 / 14.7 / 24.2 %. Full tables:
 - `slicer_to_airway.py --labels numeric` and the original two-step command both reproduce
   `airway_v3.json` exactly (same labels, centre lines and diameters).
 - `best.pt` re-run on the frames gives detections identical to the shipped `dets.txt`.
-- Steps 3–4 reproduce both rows of the table above exactly.
+- Steps 3–4, and the `run.py` + `evaluate.py` route, reproduce both rows of the table above exactly.
 
 Environment: Python 3.11, torch 2.14 (CPU), Ultralytics 8.4.165, VTK 9.7.1 (offscreen EGL),
 NumPy 2.4, SciPy 1.17, scikit-image 0.26, OpenCV 4.13.
