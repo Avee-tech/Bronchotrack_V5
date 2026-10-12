@@ -57,7 +57,8 @@ python tools/build_graph.py --mask mask_v3.npz --out airway_v3.json --patient-ri
 ```
 
 **Benchmark frames and ground truth.** The 6 benchmark runs (3,591 frames) are virtual-bronchoscopy
-renders of `ModelV3.vtk` made with VTK by `tools/make_vb_benchmark.py` (seed 0): 512×512 px,
+renders of `ModelV3.vtk` made with VTK by `tools/make_vb_benchmark.py` (seed 0; run 3 seed 19,
+because with seed 0 it repeated run 2's targets): 512×512 px,
 60° field of view, a light at the camera with distance attenuation, camera moving along the smoothed
 centre lines at 0.5 mm/frame (30 fps = 15 mm/s), looking ahead 16 frames, roll random walk
 0.4°/frame. Each run picks two targets (generation ≥ 3, radius ≥ 1.4 mm, ≥ 3 branches apart) and
@@ -114,6 +115,7 @@ python tools/slicer_to_airway.py ModelV3.vtk --labels numeric --out-dir airway
 
 # 2. render the 6 runs: frames + ground truth (about 10 min on CPU)
 python tools/make_vb_benchmark.py --mesh ModelV3.vtk --graph results/ModelV3/airway_v3.json --out vb_bench --runs 6 --seed 0
+python tools/make_vb_benchmark.py --mesh ModelV3.vtk --graph results/ModelV3/airway_v3.json --out vb_bench --runs 1 --first 2 --seed 19   # replaces run03
 
 # 3a. with the detector: copy the shipped detections into the run folders
 #     (or omit --dets-file and pass --weights best.pt to run the detector; gives the same file)
@@ -163,8 +165,9 @@ centre-line point (agrees on 98.9 % of frames; the rest sit at a bifurcation).
 
 ## 4. Verification (done on the current code)
 
-- `make_vb_benchmark.py` re-render of run 1: `gt_loc.csv`, `gt_boxes.csv`, `poses.csv` identical,
-  all 474 frames pixel-identical.
+- `make_vb_benchmark.py` re-render of all six runs with the two commands of step 2: `gt_loc.csv`,
+  `gt_boxes.csv`, `poses.csv` identical to `results/ModelV3/benchmark/run0*`; runs 1 and 3 also
+  checked frame by frame (pixel-identical).
 - `slicer_to_airway.py --labels numeric` and the original two-step command both reproduce
   `airway_v3.json` exactly (same labels, centre lines and diameters).
 - `best.pt` re-run on the frames gives detections identical to the shipped `dets.txt`.
